@@ -25,7 +25,7 @@
   let archived = $state('archived' in source ? source.archived : false);
   let error = $state('');
 
-  const EMOJI = ['💪', '🏋️', '🏃', '🧘', '🚴', '🤸', '🏊', '🥊', '🧗', '⚽'];
+  const EMOJI = ['💪', '🏋️', '🏃', '🧘', '🤸', '🏊', '🧗', '🚣🏻', '🌊', '🪨', '🖐', '🩻'];
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const backHref = isProgramme ? '#/programmes' : isNew ? '#/' : `#/w/${id}`;
   const title = isProgramme ? (isNew ? 'New programme' : 'Edit programme') : isNew ? 'New workout' : 'Edit workout';
