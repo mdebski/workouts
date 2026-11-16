@@ -1,0 +1,25 @@
+# Runs the whole JS toolchain in a container; nothing needs installing on the host.
+#
+#   docker compose up                      dev server on http://localhost:5173
+#   docker compose run --rm app npm test   run the tests
+#   docker compose run --rm app npm run build
+#   docker compose run --rm app npm run preview -- --host   serve the production build
+#
+# node_modules is written into the project folder by the container, owned by your user.
+# It holds Alpine (musl) binaries, so run npm and vite through the container, not on the host.
+services:
+  app:
+    image: node:26-alpine
+    working_dir: /app
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      HOME: /tmp
+      npm_config_cache: /tmp/.npm
+      npm_config_update_notifier: "false"
+    volumes:
+      - .:/app
+    ports:
+      - "5073:5173"
+      - "4073:4173"
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    init: true

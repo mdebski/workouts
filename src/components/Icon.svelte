@@ -1,0 +1,33 @@
+<script lang="ts" module>
+  const PATHS = {
+    left: 'M15 6l-6 6 6 6',
+    right: 'M9 6l6 6-6 6',
+    back: 'M5 12h14M5 12l6-6M5 12l6 6',
+    plus: 'M12 5v14M5 12h14',
+    list: 'M9 6h11M9 12h11M9 18h11M5 6h.01M5 12h.01M5 18h.01',
+    settings: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4',
+    check: 'M5 12l5 5 9-10',
+    play: 'M8 5v14l11-7z',
+    copy: 'M9 9h10v10H9zM5 15V5h10',
+    up: 'M6 15l6-6 6 6',
+    down: 'M6 9l6 6 6-6',
+    trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 12h10l1-12M9 7V4h6v3',
+    edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4',
+    clock: 'M12 7v5l3 3M12 3a9 9 0 100 18 9 9 0 000-18z',
+    repeat: 'M4 12V9a3 3 0 013-3h13M17 3l3 3-3 3M20 12v3a3 3 0 01-3 3H4M7 21l-3-3 3-3',
+    x: 'M6 6l12 12M18 6L6 18',
+    face: 'M12 3a9 9 0 100 18 9 9 0 000-18zM9 10h.01M15 10h.01M9 15c1.5 1 4.5 1 6 0',
+    share: 'M12 15V4M8 8l4-4 4 4M5 13v6h14v-6',
+    link: 'M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1',
+    table: 'M4 5h16v14H4zM4 10h16M10 5v14',
+  } as const;
+  export type IconName = keyof typeof PATHS;
+</script>
+
+<script lang="ts">
+  let { name, size = 22 }: { name: IconName; size?: number } = $props();
+</script>
+
+<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d={PATHS[name]} />
+</svg>
