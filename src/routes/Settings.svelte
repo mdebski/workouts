@@ -15,8 +15,10 @@
   let persisted = $state<boolean | undefined>();
   navigator.storage?.persisted?.().then((p) => (persisted = p));
 
+  const backupText = () => JSON5.stringify(snapshot(), null, 2);
+
   function exportData() {
-    const blob = new Blob([JSON5.stringify(snapshot(), null, 2)], { type: 'application/json5' });
+    const blob = new Blob([backupText()], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `workouts-${today()}.json5`;
@@ -24,6 +26,38 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     message = 'Backup saved to your downloads.';
     error = '';
+  }
+
+  /**
+   * The backup as a file the share sheet accepts. Browsers only share some file
+   * types (Chrome on Android refuses unfamiliar ones), so try the natural name
+   * first and fall back to plain text, which every share target takes. Import
+   * reads the contents, so the name and type don't matter there.
+   */
+  function shareableFile(): File | undefined {
+    const text = backupText();
+    const base = `workouts-${today()}`;
+    const candidates = [
+      new File([text], `${base}.json5`, { type: 'application/json' }),
+      new File([text], `${base}.json`, { type: 'application/json' }),
+      new File([text], `${base}.txt`, { type: 'text/plain' }),
+    ];
+    return candidates.find((f) => navigator.canShare?.({ files: [f] }));
+  }
+
+  const canShareFiles = typeof navigator.canShare === 'function' && typeof navigator.share === 'function';
+
+  async function shareData() {
+    message = error = '';
+    const file = shareableFile();
+    if (!file) return exportData();
+    try {
+      await navigator.share({ files: [file], title: 'Workouts backup' });
+      message = 'Backup shared. Keep it somewhere outside this phone, like Files, Drive or iCloud.';
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return; // closed the share sheet
+      error = "Couldn't open the share sheet. Use Download instead.";
+    }
   }
 
   async function importData(e: Event & { currentTarget: HTMLInputElement }) {
@@ -119,8 +153,11 @@
 <div class="card">
   <p class="muted">Everything lives in this browser only. Export a backup now and then, and before switching phone or browser.</p>
   <div class="row actions">
-    <button class="btn grow" onclick={exportData}>Export</button>
-    <label class="btn grow">Import<input type="file" accept=".json5,.json,application/json" onchange={importData} hidden /></label>
+    {#if canShareFiles}<button class="btn primary share" onclick={shareData}>Share backup</button>{/if}
+    <button class="btn grow" onclick={exportData}>{canShareFiles ? 'Download' : 'Export'}</button>
+    <!-- No accept filter: iOS greys out files whose type it doesn't know, and .json5 is one of
+         them. The contents are checked on import instead. -->
+    <label class="btn grow">Import<input type="file" onchange={importData} hidden /></label>
   </div>
   {#if message}<p class="muted" role="status">{message}</p>{/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -164,7 +201,9 @@
   .sheet-title { color: var(--text); font-size: 1.125rem; margin: 0 0 0.25rem; }
   .what { margin: 0.75rem 0 1rem; padding-left: 1.25rem; display: grid; gap: 0.25rem; }
   .replace { margin-top: 0.5rem; }
-  .actions { margin: 0.75rem 0; }
+  .actions { margin: 0.75rem 0; flex-wrap: wrap; }
+  /* The main way to back up gets a row of its own; Download and Import share the next one. */
+  .share { flex: 1 0 100%; }
   .update { margin-top: 0.75rem; }
   .card > p + p { margin-top: 0.5rem; }
 </style>
