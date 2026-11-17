@@ -4,8 +4,7 @@
   import MainTabs from '../components/MainTabs.svelte';
   import AddButton from '../components/AddButton.svelte';
   import { db } from '../lib/state.svelte.ts';
-  import { activityAmount, fmtNum, slotInfo, statusOf } from '../lib/core.ts';
-  import { formatDuration } from '../lib/duration.ts';
+  import { flatten, fmtRecorded, slotInfo, statusOf } from '../lib/core.ts';
   import { addDays, fmtMonth, fmtWeekday, today as todayISO } from '../lib/dates.ts';
   import type { Workout } from '../lib/types.ts';
 
@@ -27,12 +26,12 @@
     const slot = slotInfo(db, w);
     const parts: string[] = [];
     if (status === 'missed') parts.push('Missed');
-    // A logged activity: show what was done, e.g. "5.4 km" or "1h 15min".
-    const only = w.items.length === 1 && w.items[0].type === 'activity' ? w.items[0] : undefined;
-    if (only && !slot) {
-      const v = w.results[only.id]?.value;
-      if (v !== undefined) parts.push(only.measure === 'time' ? formatDuration(v * 60) : `${fmtNum(v)} ${activityAmount(only).unit}`);
-      else parts.push('Activity');
+    // A single exercise: show what was recorded, e.g. "42.5 kg", "5.4 km" or "1h 15min".
+    const flat = flatten(w.items);
+    if (flat.length === 1) {
+      const recorded = fmtRecorded(flat[0].ex, w.results[flat[0].ex.id]);
+      if (recorded) parts.push(recorded);
+      else if (!slot) parts.push(flat[0].ex.type === 'activity' ? 'Activity' : 'One-off');
       return parts.join(' · ');
     }
     if (!slot) parts.push('One-off');

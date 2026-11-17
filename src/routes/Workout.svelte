@@ -229,7 +229,9 @@
     w.startedAt ??= now;
     w.completedAt = now;
     w.status = 'done';
-    w.date = today; // recorded on the day it was actually done; scheduledDate keeps the slot
+    // A past or missed workout stays on its own day when ticked off later (it's being
+    // logged, not done now). One done ahead of schedule moves to today; scheduledDate keeps the slot.
+    if (w.date > today) w.date = today;
     timer.stop();
     go('/');
   }

@@ -56,7 +56,7 @@
       message = 'Backup shared. Keep it somewhere outside this phone, like Files, Drive or iCloud.';
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return; // closed the share sheet
-      error = "Couldn't open the share sheet. Use Download instead.";
+      error = "Couldn't open the share sheet. Use Export instead.";
     }
   }
 
@@ -154,7 +154,7 @@
   <p class="muted">Everything lives in this browser only. Export a backup now and then, and before switching phone or browser.</p>
   <div class="row actions">
     {#if canShareFiles}<button class="btn primary share" onclick={shareData}>Share backup</button>{/if}
-    <button class="btn grow" onclick={exportData}>{canShareFiles ? 'Download' : 'Export'}</button>
+    <button class="btn grow" onclick={exportData}>Export</button>
     <!-- No accept filter: iOS greys out files whose type it doesn't know, and .json5 is one of
          them. The contents are checked on import instead. -->
     <label class="btn grow">Import<input type="file" onchange={importData} hidden /></label>
@@ -202,7 +202,7 @@
   .what { margin: 0.75rem 0 1rem; padding-left: 1.25rem; display: grid; gap: 0.25rem; }
   .replace { margin-top: 0.5rem; }
   .actions { margin: 0.75rem 0; flex-wrap: wrap; }
-  /* The main way to back up gets a row of its own; Download and Import share the next one. */
+  /* The main way to back up gets a row of its own; Export and Import share the next one. */
   .share { flex: 1 0 100%; }
   .update { margin-top: 0.75rem; }
   .card > p + p { margin-top: 0.5rem; }

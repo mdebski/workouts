@@ -1,7 +1,7 @@
 import { assert, test } from 'vitest';
 import { addDays, diffDays, weekday } from '../src/lib/dates.ts';
 import { describeEnd, describeRepeat, occurrences } from '../src/lib/schedule.ts';
-import { copyValues, deleteProgramme, describe, mergeData, exerciseNames, searchExercises, fmtValues, valuesOf, emptyData, flatten, migrate, neighbours, previousDone, slotInfo, statusOf, syncProgramme, topUp, HORIZON_DAYS } from '../src/lib/core.ts';
+import { copyValues, deleteProgramme, describe, fmtRecorded, mergeData, exerciseNames, searchExercises, fmtValues, valuesOf, emptyData, flatten, migrate, neighbours, previousDone, slotInfo, statusOf, syncProgramme, topUp, HORIZON_DAYS } from '../src/lib/core.ts';
 import type { Data, Exercise, Item, Programme, Schedule, Workout } from '../src/lib/types.ts';
 
 const take = <T>(g: Iterable<T>, n: number) => { const out: T[] = []; for (const v of g) { if (out.length >= n) break; out.push(v); } return out; };
@@ -241,6 +241,20 @@ test('merging a backup adds what is missing and keeps what is here', () => {
 
   const again = mergeData(here, structuredClone(there));
   assert.deepEqual(again, { programmesAdded: 0, workoutsAdded: 0, workoutsUpdated: 0, skipped: 15 }, 'importing twice changes nothing');
+});
+
+test('recorded values in a few words', () => {
+  const reps = (measure: string) => ({ id: 'x', type: 'reps', name: 'X', sets: 3, reps: 5, measure }) as Exercise;
+  const act = (measure: string) => ({ id: 'x', type: 'activity', name: 'X', measure }) as Exercise;
+  assert.strictEqual(fmtRecorded(reps('weight'), { setsDone: 3, value: 42.5 }), '42.5 kg');
+  assert.strictEqual(fmtRecorded({ ...reps('weights'), weightCount: 2 } as Exercise, { setsDone: 3, values: [10, 12.5] }), '10 / 12.5 kg');
+  assert.strictEqual(fmtRecorded(reps('time'), { setsDone: 3, value: 70 }), '1min 10s');
+  assert.strictEqual(fmtRecorded(reps('text'), { setsDone: 3, text: 'blue' }), 'blue');
+  assert.strictEqual(fmtRecorded(act('distance'), { setsDone: 1, value: 5.4 }), '5.4 km');
+  assert.strictEqual(fmtRecorded(act('time'), { setsDone: 1, value: 75 }), '1h 15min');
+  assert.strictEqual(fmtRecorded(act('count'), { setsDone: 1, value: 30 }), '30 times');
+  assert.strictEqual(fmtRecorded(reps('none'), { setsDone: 3 }), '');
+  assert.strictEqual(fmtRecorded(reps('weight'), undefined), '');
 });
 
 test('flatten uses rounds for supersets', () => {

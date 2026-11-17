@@ -332,6 +332,23 @@ const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, 
  * Finished exercises whose name contains every word of the query, grouped by
  * exercise name. Groups and entries are newest first.
  */
+/**
+ * What was recorded for an exercise, in a few words: "42.5 kg", "10 / 12.5 kg",
+ * "1min 10s", "5.4 km", "30 times", or a note. Empty when nothing was recorded.
+ */
+export function fmtRecorded(ex: Exercise, r: Result | undefined): string {
+  if (!r) return '';
+  if (ex.type === 'activity') {
+    if (r.value === undefined) return '';
+    return ex.measure === 'time' ? formatDuration(r.value * 60) : `${fmtNum(r.value)} ${activityAmount(ex).unit}`;
+  }
+  if (recordsText(ex)) return r.text ?? '';
+  if (recordsWeights(ex)) return r.values?.some((v) => v !== null) ? `${fmtValues(r.values)} kg` : '';
+  const unit = unitOf(ex);
+  if (!unit || r.value === undefined) return '';
+  return unit === 's' ? formatDuration(r.value) : `${fmtNum(r.value)} ${unit}`;
+}
+
 /** The number to sort a result by: its weight, time, count or distance; the heaviest of several weights. */
 export function entryValue({ result: r }: SearchEntry): number | undefined {
   if (r?.value !== undefined) return r.value;
