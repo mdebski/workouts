@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import Icon from '../components/Icon.svelte';
   import { db } from '../lib/state.svelte.ts';
-  import { exerciseNames, fmtNum, searchExercises, unitOf, type SearchEntry } from '../lib/core.ts';
+  import { activityAmount, exerciseNames, fmtNum, fmtValues, recordsWeights, searchExercises, unitOf, type SearchEntry, type SearchSort } from '../lib/core.ts';
   import { fmtDayAuto } from '../lib/dates.ts';
   import { formatDuration } from '../lib/duration.ts';
   import { router } from '../lib/router.svelte.ts';
@@ -11,14 +11,19 @@
 
   let query = $state(untrack(() => router.route.query.get('q') ?? ''));
   let input = $state<HTMLInputElement>();
-  const groups = $derived(searchExercises(db, query));
+  let sort = $state<SearchSort>(untrack(() => (router.route.query.get('sort') === 'value' ? 'value' : 'date')));
+  const groups = $derived(searchExercises(db, query, sort));
   const names = $derived(exerciseNames(db));
   const total = $derived(groups.reduce((n, g) => n + g.entries.length, 0));
 
   // Keep the query in the address so Back from a workout returns to the same results.
   $effect(() => {
     const q = query.trim();
-    history.replaceState(history.state, '', q ? `#/search?q=${encodeURIComponent(q)}` : '#/search');
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (sort !== 'date') params.set('sort', sort);
+    const qs = params.toString();
+    history.replaceState(history.state, '', qs ? `#/search?${qs}` : '#/search');
   });
 
   onMount(() => {
@@ -29,8 +34,9 @@
   function recorded({ ex, sets, result: r }: SearchEntry): string {
     const unit = unitOf(ex);
     const parts: string[] = [];
-    if (ex.type === 'activity') parts.push(`${fmtNum(r?.value ?? 0)} ${ex.measure === 'time' ? 'min' : 'times'}`);
-    else if (unit && r?.value !== undefined) parts.push(`${fmtNum(r.value)} ${unit}`);
+    if (ex.type === 'activity') parts.push(`${fmtNum(r?.value ?? 0)} ${activityAmount(ex).unit}`);
+    else if (recordsWeights(ex) && r?.values?.some((v) => v !== null)) parts.push(`${fmtValues(r.values)} kg`);
+    else if (unit && r?.value !== undefined) parts.push(unit === 's' ? formatDuration(r.value) : `${fmtNum(r.value)} ${unit}`);
     if (r?.text) parts.push(r.text);
     if (ex.type !== 'activity') {
       const done = r?.setsDone ?? 0;
@@ -58,6 +64,15 @@
     <input bind:this={input} type="search" bind:value={query} list="exercise-names" placeholder="Pull-ups" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" />
   </label>
   <datalist id="exercise-names">{#each names as n}<option value={n}></option>{/each}</datalist>
+  {#if query.trim()}
+    <fieldset class="sort">
+      <legend class="sr">Sort results</legend>
+      <div class="chips">
+        <label><input type="radio" name="sort" value="date" bind:group={sort} />Newest</label>
+        <label><input type="radio" name="sort" value="value" bind:group={sort} />Highest</label>
+      </div>
+    </fieldset>
+  {/if}
 </form>
 
 {#if !query.trim()}
@@ -103,6 +118,8 @@
   .search label > :global(svg) { position: absolute; left: 0.875rem; top: 50%; translate: 0 -50%; pointer-events: none; }
   .search input { padding-left: 2.75rem; border-radius: 99px; }
   .lead { margin: 0.25rem 0.25rem 0.5rem; }
+  .sort { margin: 0.5rem 0 0; }
+  .sort .chips label { min-height: 2.25rem; padding: 0 0.875rem; font-size: 0.875rem; }
   .names { display: flex; flex-wrap: wrap; gap: 0.375rem; }
   .group h2 { display: flex; align-items: center; gap: 0.5rem; color: var(--text); font-size: 1rem; }
   .count { font-size: 0.75rem; font-weight: 600; color: var(--muted); background: var(--raise); border-radius: 99px; padding: 0.0625rem 0.5rem; }

@@ -2,14 +2,14 @@
   import { onMount } from 'svelte';
   import Icon from '../components/Icon.svelte';
   import MainTabs from '../components/MainTabs.svelte';
-  import Sheet from '../components/Sheet.svelte';
+  import AddButton from '../components/AddButton.svelte';
   import { db } from '../lib/state.svelte.ts';
-  import { durationMin, slotInfo, statusOf } from '../lib/core.ts';
+  import { activityAmount, fmtNum, slotInfo, statusOf } from '../lib/core.ts';
+  import { formatDuration } from '../lib/duration.ts';
   import { addDays, fmtMonth, fmtWeekday, today as todayISO } from '../lib/dates.ts';
   import type { Workout } from '../lib/types.ts';
 
   const today = todayISO();
-  let addOpen = $state(false);
   let pastDays = $state(14);
   let futureDays = $state(42);
 
@@ -27,10 +27,15 @@
     const slot = slotInfo(db, w);
     const parts: string[] = [];
     if (status === 'missed') parts.push('Missed');
-    if (slot) parts.push(slot.total ? `${slot.index} of ${slot.total}` : `No. ${slot.index}`);
-    else parts.push('One-off');
-    const mins = durationMin(w);
-    if (mins) parts.push(`${mins} min`);
+    // A logged activity: show what was done, e.g. "5.4 km" or "1h 15min".
+    const only = w.items.length === 1 && w.items[0].type === 'activity' ? w.items[0] : undefined;
+    if (only && !slot) {
+      const v = w.results[only.id]?.value;
+      if (v !== undefined) parts.push(only.measure === 'time' ? formatDuration(v * 60) : `${fmtNum(v)} ${activityAmount(only).unit}`);
+      else parts.push('Activity');
+      return parts.join(' · ');
+    }
+    if (!slot) parts.push('One-off');
     return parts.join(' · ');
   }
 
@@ -39,7 +44,7 @@
 
 <header class="bar main">
   <MainTabs active="workouts" />
-  <button class="icon-btn add" aria-label="Add a workout or programme" aria-haspopup="dialog" onclick={() => (addOpen = true)}><Icon name="plus" /></button>
+  <AddButton />
   <a class="icon-btn" href="#/search" aria-label="Search exercises"><Icon name="search" /></a>
   <a class="icon-btn" href="#/settings" aria-label="Settings"><Icon name="settings" /></a>
 </header>
@@ -66,7 +71,7 @@
             <span class="emoji" aria-hidden="true">{w.emoji}</span>
             <span class="text">
               <span class="name">{w.name}</span>
-              <span class="muted">{sub(w)}</span>
+              {#if sub(w)}<span class="muted">{sub(w)}</span>{/if}
             </span>
             {#if status === 'done'}<span class="mark"><Icon name="check" size={14} /><span class="sr">Done</span></span>{/if}
             {#if status === 'today'}<span class="mark"><Icon name="play" size={12} /></span>{/if}
@@ -81,25 +86,8 @@
 
 <button class="btn small wide more" onclick={() => (futureDays += 28)}>Show later</button>
 
-<Sheet bind:open={addOpen} label="What do you want to add?">
-  <nav class="choices" aria-label="Add">
-    <a class="choice" href="#/w/new/edit?date={today}" onclick={() => (addOpen = false)}>
-      <span class="emoji" aria-hidden="true"><Icon name="bolt" /></span>
-      <span><strong>One-off workout</strong><span class="muted">A single session on a day you pick</span></span>
-    </a>
-    <a class="choice" href="#/p/new" onclick={() => (addOpen = false)}>
-      <span class="emoji" aria-hidden="true"><Icon name="calendar" /></span>
-      <span><strong>Programme</strong><span class="muted">A workout that repeats on a schedule</span></span>
-    </a>
-  </nav>
-</Sheet>
 
 <style>
-  .choices { display: grid; gap: 0.5rem; }
-  .choice { display: flex; align-items: center; gap: 0.75rem; padding: 0.875rem; border-radius: var(--radius); background: var(--raise); }
-  .choice > span:last-child { display: grid; }
-  .choice .emoji { background: var(--accent); color: var(--accent-ink); }
-  .add { color: var(--accent); }
   .more { margin: 0.5rem 0; }
   .days { list-style: none; margin: 0; padding: 0; }
   .month { position: sticky; top: 3.5rem; z-index: 2; background: var(--bg); padding: 0.5rem 0.25rem; font-size: 0.8125rem; font-weight: 600; color: var(--muted); }

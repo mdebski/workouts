@@ -39,7 +39,7 @@ function exercise(v: unknown): Exercise {
     return { ...base, type: 'timed', sets: old ? 1 : int(v.sets, 1, 99, 1), reps: int(old ? v.sets : v.reps, 1, 99, 1), restBetweenSets: rest(v.restBetweenSets), workSec: int(v.workSec, 1, 3600, 30), restSec: int(v.restSec, 0, 3600, 0), trackWeight: v.trackWeight === true };
   }
   if (v.type === 'activity') {
-    return { ...base, type: 'activity', measure: v.measure === 'count' ? 'count' : 'time' };
+    return { ...base, type: 'activity', measure: v.measure === 'count' || v.measure === 'distance' ? v.measure : 'time' };
   }
   throw new Error('unknown exercise type');
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from '../components/Icon.svelte';
   import MainTabs from '../components/MainTabs.svelte';
+  import AddButton from '../components/AddButton.svelte';
   import { db } from '../lib/state.svelte.ts';
   import { statusOf } from '../lib/core.ts';
   import { describeEnd, describeRepeat } from '../lib/schedule.ts';
@@ -53,9 +54,20 @@
     go(`/add/${payload}`);
   }
 
+  // Share links are built ahead of time. Building one takes a moment (it is compressed),
+  // and Safari only opens the share sheet if it's asked straight away when the button
+  // is tapped, so there must be no waiting between the tap and navigator.share().
+  let links = $state<Record<string, string>>({});
+  $effect(() => {
+    for (const p of db.programmes) {
+      const snapshot = $state.snapshot(p) as Programme;
+      encodeProgramme(snapshot).then((payload) => (links[p.id] = shareUrl(payload)));
+    }
+  });
+
   async function share(p: Programme) {
     shareLink = '';
-    const url = shareUrl(await encodeProgramme($state.snapshot(p) as Programme));
+    const url = links[p.id] ?? shareUrl(await encodeProgramme($state.snapshot(p) as Programme));
     try {
       if (navigator.share) {
         await navigator.share({ title: `${p.emoji} ${p.name}`, text: `${p.name}: a workout programme`, url });
@@ -83,7 +95,7 @@
 
 <header class="bar main">
   <MainTabs active="programmes" />
-  <a class="icon-btn add" href="#/p/new" aria-label="New programme"><Icon name="plus" /></a>
+  <AddButton />
   <a class="icon-btn" href="#/search" aria-label="Search exercises"><Icon name="search" /></a>
   <a class="icon-btn" href="#/settings" aria-label="Settings"><Icon name="settings" /></a>
 </header>
@@ -110,6 +122,8 @@
   </div>
 {/snippet}
 
+<button class="btn wide from-link" onclick={openPaste}><Icon name="link" size={18} /> Add from a link</button>
+
 {#each active as p (p.id)}
   {@render card(p)}
 {:else}
@@ -120,7 +134,6 @@
   </div>
 {/each}
 
-<button class="btn wide from-link" onclick={openPaste}><Icon name="link" size={18} /> Add from a link</button>
 
 {#if archived.length}
   <h2>Archived</h2>
@@ -142,9 +155,8 @@
 </Sheet>
 
 <style>
-  .from-link { margin-top: 0.5rem; }
+  .from-link { margin-bottom: 0.75rem; }
   textarea { word-break: break-all; resize: none; }
-  .add { color: var(--accent); }
   .actions { margin-top: 0.75rem; flex-wrap: wrap; }
   .shared { margin: 0.5rem 0; }
   .empty { display: grid; gap: 0.5rem; justify-items: start; padding: 1rem; }

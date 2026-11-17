@@ -4,7 +4,7 @@
   import { formatDuration } from '../lib/duration.ts';
   import ValueSheet from '../components/ValueSheet.svelte';
   import { db, getWorkout, removeWorkout } from '../lib/state.svelte.ts';
-  import { recordsKg, valuesOf, matchingValues, recordsWeights, fmtValues, copyValues, matchingText, recordsText, fmtNum, describe, durationMin, flatten, fmtSecs, fmtValue, isComplete, matchingValue, neighbours, previousDone, resultOf, slotInfo, statusOf, unitOf, valueOf, type Unit } from '../lib/core.ts';
+  import { activityAmount, recordsKg, valuesOf, matchingValues, recordsWeights, fmtValues, copyValues, matchingText, recordsText, fmtNum, describe, flatten, fmtSecs, fmtValue, isComplete, matchingValue, neighbours, previousDone, resultOf, slotInfo, statusOf, unitOf, valueOf, type Unit } from '../lib/core.ts';
   import { fmtDay, fmtLong, isISODate, today as todayISO } from '../lib/dates.ts';
   import { go } from '../lib/router.svelte.ts';
   import { timer, type Phase } from '../lib/timer.svelte.ts';
@@ -25,7 +25,7 @@
     { id: 'hard', label: 'Hard', icon: '😣' },
     { id: 'failed', label: 'Failed', icon: '❌' },
   ];
-  const STEPS: Record<Exclude<Unit, 'kg'>, number[]> = { s: [5, 10, 30], min: [1, 5, 10], '×': [1, 5, 10] };
+  const STEPS: Record<Exclude<Unit, 'kg'>, number[]> = { s: [5, 10, 30], min: [1, 5, 10], km: [0.5, 1, 5], '×': [1, 5, 10] };
 
   let feelOpen = $state('');
   let sheetOpen = $state(false);
@@ -140,7 +140,8 @@
 
   /** The − and + next to an activity's amount: one rep, or one minute. */
   function nudge(w: Workout, ex: Exercise, d: 1 | -1) {
-    record(w, ex, Math.max(0, (valueOf(w, ex) ?? 0) + d));
+    const next = (valueOf(w, ex) ?? 0) + d * activityAmount(ex).step;
+    record(w, ex, Math.max(0, Math.round(next * 100) / 100));
   }
 
   function recordSlot(w: Workout, ex: Exercise, slot: number, value: number) {
@@ -159,6 +160,36 @@
     record(w, ex, Math.round((base + minStep) * 100) / 100);
   }
 
+  const hasKg = $derived(found ? flatten(found.items).some(({ ex }) => recordsKg(ex)) : false);
+
+  /**
+   * Adds the smallest step to every weight in the workout. A weight with nothing
+   * recorded yet starts from last time's; one with no history at all is left alone.
+   */
+  function bumpAll(w: Workout) {
+    const step = (v: number) => Math.round((v + minStep) * 100) / 100;
+    let n = 0;
+    for (const { ex } of flatten(w.items)) {
+      if (!recordsKg(ex)) continue;
+      if (recordsWeights(ex)) {
+        const now = valuesOf(w, ex);
+        const before = matchingValues(last, ex) ?? [];
+        const next = now.map((v, i) => (v ?? before[i] ?? null) === null ? null : step((v ?? before[i])!));
+        if (next.some((v) => v !== null)) {
+          resultOf(w, ex.id).values = next;
+          n++;
+        }
+      } else {
+        const base = valueOf(w, ex) ?? matchingValue(last, ex);
+        if (base === undefined) continue;
+        resultOf(w, ex.id).value = step(base);
+        n++;
+      }
+    }
+    if (n) touch(w);
+    copied = n ? `Added ${fmtNum(minStep)} kg to ${n} ${n === 1 ? 'exercise' : 'exercises'}.` : 'No weights to add to yet.';
+  }
+
   function setDumbbells(w: Workout, ex: Exercise, on: boolean) {
     const r = resultOf(w, ex.id);
     if (on) r.dumbbells = true;
@@ -171,6 +202,7 @@
     Object.values(w.results).some((r) => r.value !== undefined || r.values?.some((v) => v !== null) || !!r.text || r.dumbbells);
 
   function clearRecorded(w: Workout) {
+    if (!hasRecorded(w)) return (copied = 'Nothing recorded yet.');
     if (!confirm("Clear every weight, time, count and note recorded in this workout? Ticked sets and how it felt stay. This can't be undone.")) return;
     for (const { ex } of flatten(w.items)) {
       const r = w.results[ex.id];
@@ -227,7 +259,7 @@
 
   <p class="when">
     {fmtLong(w.date)}{#if slot}{' · '}{slot.total ? `${slot.index} of ${slot.total}` : `No. ${slot.index}`}{/if}
-    {#if status === 'done'}<span class="tag ok">Done{durationMin(w) ? ` · ${durationMin(w)} min` : ''}</span>{/if}
+    {#if status === 'done'}<span class="tag ok">Done</span>{/if}
     {#if status === 'missed'}<span class="tag bad">Missed</span>{/if}
   </p>
 
@@ -237,9 +269,11 @@
     {#if around.next}<a class="btn small" href="#/w/{around.next.id}">{fmtDay(around.next.date)} <Icon name="right" size={18} /></a>{/if}
   </nav>
 
-  {#if last && w.status !== 'done'}
-    <button class="btn wide copy" onclick={() => copyLast(w)}><Icon name="copy" size={18} /> Same values as {fmtDay(last.date)}</button>
-  {/if}
+  <div class="row tools">
+    {#if last}<button class="btn small grow" onclick={() => copyLast(w)} title="Copy values from {fmtDay(last.date)}"><Icon name="copy" size={16} /> Copy last</button>{/if}
+    {#if hasKg}<button class="btn small grow" onclick={() => bumpAll(w)} title="Add {fmtNum(minStep)} kg to every weight"><Icon name="plus" size={16} /> {fmtNum(minStep)} kg</button>{/if}
+    <button class="btn small grow" onclick={() => clearRecorded(w)} aria-disabled={!hasRecorded(w)}><Icon name="x" size={16} /> Clear</button>
+  </div>
   <p class="muted status" role="status">{copied}</p>
 
   {#snippet dumbbellMark(ex: Exercise)}
@@ -285,12 +319,13 @@
       {/if}
       {#if ex.type === 'activity'}
         {@const v = valueOf(w, ex) ?? 0}
-        <div class="amount" role="group" aria-label="{ex.name}, {ex.measure === 'time' ? 'minutes' : 'count'}">
-          <button class="step" aria-label="One {ex.measure === 'time' ? 'minute' : ''} less" aria-disabled={!v} onclick={() => nudge(w, ex, -1)}>−</button>
+        {@const amt = activityAmount(ex)}
+        <div class="amount" role="group" aria-label="{ex.name}, {amt.unit}">
+          <button class="step" aria-label="{amt.stepLabel} less" aria-disabled={!v} onclick={() => nudge(w, ex, -1)}>−</button>
           <button class="value" aria-label="{fmtValue(v, unit)}. Type a value" onclick={() => openValue(ex)}>
-            <span class="num">{fmtNum(v)}</span><span class="unit">{ex.measure === 'time' ? 'min' : 'times'}</span>
+            <span class="num">{fmtNum(v)}</span><span class="unit">{amt.unit}</span>
           </button>
-          <button class="step" aria-label="One {ex.measure === 'time' ? 'minute' : ''} more" onclick={() => nudge(w, ex, 1)}>+</button>
+          <button class="step" aria-label="{amt.stepLabel} more" onclick={() => nudge(w, ex, 1)}>+</button>
         </div>
       {:else}
       <div class="row sets">
@@ -339,12 +374,11 @@
   {/if}
 
   <details class="more">
-    <summary>Move, clear or delete</summary>
+    <summary>Move or delete</summary>
     <label class="field"><span>{w.status === 'done' ? 'Done on' : 'Planned for'}</span>
       <input type="date" value={w.date} onchange={(e) => { if (isISODate(e.currentTarget.value)) w.date = e.currentTarget.value; }} />
     </label>
     {#if w.scheduledDate && w.scheduledDate !== w.date}<p class="muted">Originally scheduled for {fmtDay(w.scheduledDate)}.</p>{/if}
-    {#if hasRecorded(w)}<button class="btn wide clear" onclick={() => clearRecorded(w)}>Clear recorded values</button>{/if}
     <button class="btn danger wide" onclick={() => remove(w)}>Delete workout</button>
   </details>
 
@@ -384,7 +418,8 @@
   .tag.ok { background: var(--ok); color: var(--ok-ink); }
   .tag.bad { background: var(--bad); color: var(--bad-ink); }
   .around { margin-bottom: 0.75rem; }
-  .copy { margin-bottom: 0.25rem; }
+  .tools { margin-bottom: 0.25rem; }
+  .tools .btn { padding-inline: 0.5rem; }
   .status { min-height: 1.25rem; margin: 0 0.25rem 0.25rem; }
 
   .ex { border: 2px solid transparent; display: grid; gap: 0.375rem; }
@@ -396,7 +431,6 @@
   .bump:hover { background: var(--line); }
   .db-mark { display: inline-flex; vertical-align: -2px; margin-left: 0.25rem; color: var(--accent); }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-  .clear { margin-bottom: 0.5rem; }
   .chip.unset { background: transparent; box-shadow: inset 0 0 0 2px var(--line); color: var(--muted); }
 
   .feels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.375rem; padding: 0.375rem; background: var(--bg); border-radius: 12px; }

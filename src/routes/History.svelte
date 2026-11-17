@@ -101,15 +101,18 @@
   .missed-col a { color: var(--bad); text-decoration: line-through; }
   td.missed-cell { background: linear-gradient(to top right, transparent calc(50% - 1px), var(--bad-line) calc(50% - 1px), var(--bad-line) calc(50% + 1px), transparent calc(50% + 1px)), var(--card); opacity: 0.6; }
   .text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; max-width: 9rem; white-space: normal; text-align: left; }
-  td.easy, .key.easy { background: var(--ok); color: var(--ok-ink); }
-  td.hard, .key.hard { background: var(--warn); color: var(--warn-ink); }
-  td.failed, .key.failed { background: var(--bad); color: var(--bad-ink); }
+  /* How it felt: a small dot in the cell's corner, so the values stay the focus. */
+  td.easy, td.hard, td.failed { position: relative; }
+  td.easy::after, td.hard::after, td.failed::after, .key::before { content: ''; width: 0.4375rem; height: 0.4375rem; border-radius: 50%; background: var(--feel); }
+  td.easy::after, td.hard::after, td.failed::after { position: absolute; top: 0.3125rem; right: 0.3125rem; }
+  .easy { --feel: var(--ok); }
+  .hard { --feel: var(--warn); }
+  .failed { --feel: var(--bad); }
   .db { display: inline-flex; vertical-align: -0.125em; margin-inline-end: 0.125rem; opacity: 0.8; }
-  /* Secondary text in a coloured cell takes the cell's own dark text colour, so it stays readable. */
-  td.easy .muted, td.hard .muted, td.failed .muted { color: inherit; }
   td :global(.muted) { font-size: inherit; }
-  .key.missed-key { background: transparent; color: var(--bad); box-shadow: inset 0 0 0 2px var(--bad-line); }
-  .legend { display: flex; gap: 0.375rem; margin-top: 0.75rem; }
-  .key { padding: 0.125rem 0.625rem; border-radius: 99px; font-weight: 600; }
+  .legend { display: flex; flex-wrap: wrap; gap: 0.25rem 0.875rem; margin-top: 0.75rem; }
+  .key { display: inline-flex; align-items: center; gap: 0.375rem; }
+  .key.missed-key { color: var(--bad); }
+  .key.missed-key::before { content: '╱'; width: auto; height: auto; border-radius: 0; background: none; font-weight: 600; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 </style>

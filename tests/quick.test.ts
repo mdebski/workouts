@@ -14,6 +14,8 @@ test('shorthand lines', () => {
   assert.deepEqual(p('Warm-up min'), { name: 'Warm-up', type: 'activity', measure: 'time' });
   assert.deepEqual(p('Stretch: 7,5min'), { name: 'Stretch', type: 'activity', measure: 'time' });
   assert.deepEqual(p('Jumping jacks count'), { name: 'Jumping jacks', type: 'activity', measure: 'count' });
+  assert.deepEqual(p('Run km'), { name: 'Run', type: 'activity', measure: 'distance' });
+  assert.deepEqual(p('Bike 12.5 km'), { name: 'Bike', type: 'activity', measure: 'distance' });
   assert.deepEqual(p('Burpees x20'), { name: 'Burpees', type: 'activity', measure: 'count' });
 });
 

@@ -74,13 +74,13 @@ export function flatten(items: Item[]): FlatExercise[] {
   );
 }
 
-export type Unit = 'kg' | 's' | 'min' | '×';
+export type Unit = 'kg' | 's' | 'min' | 'km' | '×';
 
 /** The unit of the value recorded for an exercise, or null if nothing is recorded. */
 export function unitOf(ex: Exercise): Unit | null {
   if (ex.type === 'reps') return ex.measure === 'weight' || ex.measure === 'weights' ? 'kg' : ex.measure === 'time' ? 's' : null;
   if (ex.type === 'timed') return ex.trackWeight ? 'kg' : null;
-  return ex.measure === 'time' ? 'min' : '×';
+  return ex.measure === 'time' ? 'min' : ex.measure === 'distance' ? 'km' : '×';
 }
 
 /** Whether the exercise records a weight in kg, so a dumbbell flag makes sense. */
@@ -93,6 +93,13 @@ function copyDumbbells(w: Workout, from: Workout, ex: Exercise) {
   const r = resultOf(w, ex.id);
   if (match && from.results[match.ex.id]?.dumbbells) r.dumbbells = true;
   else delete r.dumbbells;
+}
+
+/** How an activity's amount is shown and nudged: its unit word and the − / + step. */
+export function activityAmount(ex: Exercise): { unit: string; step: number; stepLabel: string } {
+  if (ex.type !== 'activity' || ex.measure === 'count') return { unit: 'times', step: 1, stepLabel: 'one' };
+  if (ex.measure === 'distance') return { unit: 'km', step: 0.5, stepLabel: '0.5 km' };
+  return { unit: 'min', step: 1, stepLabel: 'one minute' };
 }
 
 export const fmtNum = (n: number) => String(Math.round(n * 100) / 100);
@@ -120,7 +127,7 @@ export function describe(ex: Exercise, inSuperset = false): string {
     const sets = inSuperset || ex.sets === 1 ? '' : `${ex.sets} sets of `;
     return `${sets}${ex.reps} × ${formatDuration(ex.workSec)} on, ${formatDuration(ex.restSec)} off${ex.trackWeight ? ' · weight' : ''}${inSuperset ? '' : rest(ex.restBetweenSets)}`;
   }
-  return ex.measure === 'time' ? 'Activity · record minutes' : 'Activity · record a count';
+  return ex.measure === 'time' ? 'Activity · record minutes' : ex.measure === 'distance' ? 'Activity · record distance' : 'Activity · record a count';
 }
 
 export function resultOf(w: Workout, exId: string): Result {
@@ -247,11 +254,6 @@ export function slotInfo(data: Data, w: Workout): { index: number; total?: numbe
   return { index: slots.findIndex((o) => o.id === w.id) + 1, total: p?.schedule.end.kind === 'count' ? p.schedule.end.n : undefined };
 }
 
-export function durationMin(w: Workout): number | undefined {
-  if (!w.startedAt || !w.completedAt) return undefined;
-  return Math.max(1, Math.round((Date.parse(w.completedAt) - Date.parse(w.startedAt)) / 60_000));
-}
-
 // ---- Merging a backup into existing data --------------------------------
 
 export interface MergeSummary {
@@ -330,7 +332,16 @@ const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, 
  * Finished exercises whose name contains every word of the query, grouped by
  * exercise name. Groups and entries are newest first.
  */
-export function searchExercises(data: Data, query: string): SearchGroup[] {
+/** The number to sort a result by: its weight, time, count or distance; the heaviest of several weights. */
+export function entryValue({ result: r }: SearchEntry): number | undefined {
+  if (r?.value !== undefined) return r.value;
+  const values = r?.values?.filter((v): v is number => v !== null) ?? [];
+  return values.length ? Math.max(...values) : undefined;
+}
+
+export type SearchSort = 'date' | 'value';
+
+export function searchExercises(data: Data, query: string, sort: SearchSort = 'date'): SearchGroup[] {
   const words = fold(query).split(' ').filter(Boolean);
   if (!words.length) return [];
   const groups = new Map<string, SearchGroup>();
@@ -344,7 +355,13 @@ export function searchExercises(data: Data, query: string): SearchGroup[] {
       groups.set(key, group);
     }
   }
-  return [...groups.values()].sort((a, b) => b.entries[0].workout.date.localeCompare(a.entries[0].workout.date) || a.name.localeCompare(b.name));
+  // Groups stay in date order (the most recently done exercise first) either way.
+  const list = [...groups.values()].sort((a, b) => b.entries[0].workout.date.localeCompare(a.entries[0].workout.date) || a.name.localeCompare(b.name));
+  if (sort === 'value') {
+    // Highest first; entries with nothing recorded go last. Ties keep date order (stable sort).
+    for (const g of list) g.entries.sort((a, b) => (entryValue(b) ?? -Infinity) - (entryValue(a) ?? -Infinity));
+  }
+  return list;
 }
 
 /** Every distinct exercise name in finished workouts, for suggestions. */

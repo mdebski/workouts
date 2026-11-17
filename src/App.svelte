@@ -11,6 +11,7 @@
   import Settings from './routes/Settings.svelte';
   import AddProgramme from './routes/AddProgramme.svelte';
   import Search from './routes/Search.svelte';
+  import AddActivity from './routes/AddActivity.svelte';
 
   const route = $derived(router.route);
 
@@ -42,6 +43,8 @@
     <Programmes />
   {:else if route.name === 'add'}
     {#key route.id}<AddProgramme payload={route.id!} />{/key}
+  {:else if route.name === 'add-activity'}
+    <AddActivity date={route.query.get('date') ?? undefined} />
   {:else if route.name === 'search'}
     <!-- Re-created when a link brings a different query; typing only rewrites the address, so it doesn't. -->
     {#key route.query.get('q')}<Search />{/key}

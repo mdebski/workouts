@@ -39,8 +39,8 @@ export interface TimedExercise extends ExerciseBase {
 
 export interface ActivityExercise extends ExerciseBase {
   type: 'activity';
-  /** What gets recorded when it is done: how many, or how many minutes. Nothing is preset. */
-  measure: 'count' | 'time';
+  /** What gets recorded when it is done: how many, how many minutes, or how far (km). Nothing is preset. */
+  measure: 'count' | 'time' | 'distance';
 }
 
 export type Exercise = RepsExercise | TimedExercise | ActivityExercise;

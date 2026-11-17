@@ -3,12 +3,14 @@
   import Icon from '../components/Icon.svelte';
   import ItemsEditor from '../components/ItemsEditor.svelte';
   import Fold from '../components/Fold.svelte';
+  import EmojiPicks from '../components/EmojiPicks.svelte';
+  import RecordFields from '../components/RecordFields.svelte';
   import { describeEnd, describeRepeat } from '../lib/schedule.ts';
   import { blankProgramme, blankWorkout, getProgramme, getWorkout, removeProgramme, removeWorkout, saveProgramme, saveWorkout } from '../lib/state.svelte.ts';
   import { clone, flatten } from '../lib/core.ts';
   import { go } from '../lib/router.svelte.ts';
   import { isISODate, today } from '../lib/dates.ts';
-  import type { Item, Programme, Schedule, Workout } from '../lib/types.ts';
+  import type { Item, Programme, Result, Schedule, Workout } from '../lib/types.ts';
 
   let props: { kind: 'programme' | 'workout'; id: string; date?: string } = $props();
   // The parent re-creates this screen whenever the route changes, so the props are read once.
@@ -28,6 +30,17 @@
   let error = $state('');
   let scheduleOpen = $state(true);
   let exercisesOpen = $state(true);
+  // Workouts only: what was done, so a past session can be logged in one go.
+  let results = $state<Record<string, Result>>('results' in source ? source.results : {});
+  let done = $state('status' in source && source.status === 'done');
+  let recordOpen = $state(true);
+
+  /** Ticking the whole workout as done ticks every exercise in it. */
+  function setWorkoutDone(on: boolean) {
+    done = on;
+    if (!on) return;
+    for (const { ex, sets } of flatten(items)) (results[ex.id] ??= { setsDone: 0 }).setsDone = sets;
+  }
 
   const count = $derived(flatten(items).length);
 
@@ -89,9 +102,23 @@
       saveProgramme({ ...(source as Programme), ...common, schedule: s, archived });
       go('/programmes');
     } else {
-      const w = { ...(source as Workout), ...common, date: workoutDate };
+      const ids = new Set(flatten(common.items).map((f) => f.ex.id));
+      const kept = Object.fromEntries(Object.entries(clone($state.snapshot(results)) as Record<string, Result>).filter(([k]) => ids.has(k)));
+      const was = source as Workout;
+      const now = new Date().toISOString();
+      const w: Workout = {
+        ...was,
+        ...common,
+        date: workoutDate,
+        results: kept,
+        status: done ? 'done' : 'planned',
+        // Logging after the fact says nothing about when it started, so leave that empty.
+        startedAt: was.startedAt,
+        completedAt: done ? (was.completedAt ?? now) : undefined,
+      };
       saveWorkout(w);
-      go(`/w/${w.id}`);
+      // Logged as done: back to the agenda. Otherwise open it, ready to do.
+      go(done ? '/' : `/w/${w.id}`);
     }
   }
 
@@ -108,6 +135,9 @@
   }
 </script>
 
+<!-- Esc leaves the form without saving, like the ✕ button; an open sheet takes Esc first. -->
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && !e.isComposing && !e.defaultPrevented && !document.querySelector('dialog[open]')) location.hash = backHref; }} />
+
 <header class="bar">
   <a class="icon-btn" href={backHref} aria-label="Cancel"><Icon name="x" /></a>
   <h1 tabindex="-1">{title}</h1>
@@ -122,10 +152,11 @@
       <label class="field icon"><span>Icon</span><input type="text" bind:this={emojiInput} value={emoji} oninput={onEmojiInput} onfocus={(e) => e.currentTarget.select()} autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="emoji-hint" /></label>
       <label class="field grow"><span>Name</span><input type="text" bind:value={name} autocomplete="off" placeholder={isProgramme ? 'Pull day' : 'Evening run'} /></label>
     </div>
-    <div class="picks" id="emoji-picks" role="group" aria-label="Pick an icon">
-      {#each EMOJI as e}<button type="button" class="pick" class:on={emoji === e} aria-pressed={emoji === e} onclick={() => (emoji = e)}>{e}</button>{/each}
-      <button type="button" class="pick other" aria-label="Choose another emoji with your keyboard" aria-expanded={emojiHint} onclick={otherEmoji}><Icon name="face" /></button>
-    </div>
+    <EmojiPicks bind:value={emoji} options={EMOJI}>
+      {#snippet after()}
+        <button type="button" class="pick-other" aria-label="Choose another emoji with your keyboard" aria-expanded={emojiHint} onclick={otherEmoji}><Icon name="face" /></button>
+      {/snippet}
+    </EmojiPicks>
 
     <p class="muted emoji-hint" id="emoji-hint" hidden={!emojiHint}>
       Type any emoji into the Icon box: use the emoji key on your phone's keyboard, or press Windows + . (Mac: Ctrl + Cmd + Space) on a computer.
@@ -186,6 +217,13 @@
       <ItemsEditor bind:items />
     </Fold>
 
+    {#if !isProgramme}
+      <Fold title="Record" bind:open={recordOpen} summary={done ? 'done' : 'not done yet'}>
+        <label class="check done-box"><input type="checkbox" checked={done} onchange={(e) => setWorkoutDone(e.currentTarget.checked)} /> Workout done</label>
+        <RecordFields {items} bind:results />
+      </Fold>
+    {/if}
+
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     <button type="submit" class="btn primary wide save">Save</button>
 
@@ -201,14 +239,11 @@
   .top { align-items: flex-start; }
   .icon { width: 4.5rem; flex: none; }
   .icon input { text-align: center; font-size: 1.25rem; padding-inline: 0.25rem; }
-  .picks { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 0.5rem; }
-  .pick { width: 2.75rem; height: 2.75rem; border-radius: 12px; border: 2px solid transparent; background: var(--card); font-size: 1.25rem; cursor: pointer; }
-  .pick.on { border-color: var(--accent); }
-  .pick.other { display: inline-grid; place-items: center; color: var(--muted); border: 2px dashed var(--line); background: none; }
   .emoji-hint { margin: 0 0.25rem 0.5rem; }
   .card fieldset:last-child, .card .field:last-child { margin-bottom: 0; }
   .save { margin: 1rem 0; }
   .note { margin-bottom: 0.75rem; }
   .check { display: flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; margin-bottom: 0.75rem; }
   .check input { width: 1.25rem; height: 1.25rem; }
+  .done-box { font-weight: 600; margin-bottom: 0.25rem; }
 </style>

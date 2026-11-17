@@ -262,6 +262,7 @@
         <div class="chips">
           <label><input type="radio" name="ameasure" value="time" bind:group={draft.measure} />Minutes</label>
           <label><input type="radio" name="ameasure" value="count" bind:group={draft.measure} />Count</label>
+          <label><input type="radio" name="ameasure" value="distance" bind:group={draft.measure} />Distance</label>
         </div>
       </fieldset>
     {/if}
@@ -294,7 +295,7 @@
       <span>One exercise per line</span>
       <textarea bind:value={severalText} rows="6" autocomplete="off" spellcheck="false" placeholder={'Pull-ups 4x6\nRows\nPlank 3x hold\nDead hang 6x5/5\nWarm-up min\nJumping jacks count'}></textarea>
     </label>
-    <p class="muted hint">A name alone copies the sets and reps of the previous exercise. Add 4x6 for sets and reps, 3x hold for timed holds, 6x5/5 for 6 rounds of 5 s on and 5 s off, or end with min or count for an activity you record in minutes or as a count.</p>
+    <p class="muted hint">A name alone copies the sets and reps of the previous exercise. Add 4x6 for sets and reps, 3x hold for timed holds, 6x5/5 for 6 rounds of 5 s on and 5 s off, or end with min, count or km for an activity you record in minutes, as a count or as a distance.</p>
     {#if several.length}
       <ul class="preview" aria-label="What will be added">
         {#each several as ex (ex.id)}<li><strong>{ex.name}</strong> <span class="muted">{describe(ex)}</span></li>{/each}

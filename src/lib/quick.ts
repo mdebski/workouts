@@ -7,6 +7,7 @@
 //   Dead hang 3x6x5/5     3 sets of that
 //   Warm-up min           an activity: minutes are recorded when it's done
 //   Jumping jacks count   an activity: a count is recorded when it's done
+//   Run km                an activity: a distance in km is recorded when it's done
 //   Rows                  just a name: sets and reps copied from the defaults
 
 import { uid } from './core.ts';
@@ -27,6 +28,7 @@ const RULES: [RegExp, (m: RegExpMatchArray, d: QuickDefaults) => Omit<Exercise, 
   [new RegExp(`${NAME}(\\d+)${X}(\\d+)$`, 'i'), (m, d) => ({ type: 'reps', sets: Number(m[2]), reps: Number(m[3]), measure: d.measure === 'time' ? 'weight' : d.measure, restBetweenSets: d.restBetweenSets })],
   // Activities have no preset amount; a number written before "min" or on its own is accepted and ignored.
   [new RegExp(`${NAME}(?:\\d+(?:[.,]\\d+)?\\s*)?min(?:ute)?s?$`, 'i'), () => ({ type: 'activity', measure: 'time' })],
+  [new RegExp(`${NAME}(?:\\d+(?:[.,]\\d+)?\\s*)?km$`, 'i'), () => ({ type: 'activity', measure: 'distance' })],
   [new RegExp(`${NAME}(?:count|[x×]?\\s*\\d+\\s*[x×]?)$`, 'i'), () => ({ type: 'activity', measure: 'count' })],
 ];
 
