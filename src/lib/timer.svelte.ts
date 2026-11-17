@@ -32,6 +32,8 @@ class Timer {
   index = $state(0);
   owner = $state('');
   #endsAt = $state(0);
+  /** When the timer was paused, or 0 while running. */
+  #pausedAt = $state(0);
   #now = $state(Date.now());
   #interval: ReturnType<typeof setInterval> | undefined;
   #run = 0;
@@ -42,7 +44,28 @@ class Timer {
   }
 
   get remaining(): number {
-    return Math.max(0, (this.#endsAt - this.#now) / 1000);
+    return Math.max(0, (this.#endsAt - (this.#pausedAt || this.#now)) / 1000);
+  }
+
+  get paused(): boolean {
+    return this.#pausedAt !== 0;
+  }
+
+  /** Freezes the countdown; resuming carries on from the same second. */
+  pause(): void {
+    if (!this.current || this.paused) return;
+    this.#pausedAt = Date.now();
+    clearInterval(this.#interval);
+    this.#interval = undefined;
+  }
+
+  resume(): void {
+    if (!this.current || !this.paused) return;
+    this.#endsAt += Date.now() - this.#pausedAt;
+    this.#pausedAt = 0;
+    this.#now = Date.now();
+    void audio?.resume();
+    this.#interval = setInterval(() => this.#tick(), 200);
   }
 
   /** Must be called from a user gesture the first time, so audio is allowed. */
@@ -68,17 +91,19 @@ class Timer {
     this.phases = [];
     this.index = 0;
     this.owner = '';
+    this.#pausedAt = 0;
   }
 
   /** Ends the current phase now, as if it had run out. */
   skip(): void {
     if (!this.current) return;
+    if (this.paused) this.resume();
     this.#endsAt = Date.now();
     this.#tick();
   }
 
   add(seconds: number): void {
-    if (this.current) this.#endsAt = Math.max(Date.now(), this.#endsAt + seconds * 1000);
+    if (this.current) this.#endsAt = Math.max(this.#pausedAt || Date.now(), this.#endsAt + seconds * 1000);
   }
 
   #tick(): void {
