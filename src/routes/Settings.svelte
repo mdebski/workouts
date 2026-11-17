@@ -1,8 +1,10 @@
 <script lang="ts">
   import JSON5 from 'json5';
   import Icon from '../components/Icon.svelte';
-  import { db, replaceAll, snapshot } from '../lib/state.svelte.ts';
-  import { fmtNum, migrate } from '../lib/core.ts';
+  import Sheet from '../components/Sheet.svelte';
+  import { db, mergeIn, replaceAll, snapshot } from '../lib/state.svelte.ts';
+  import { fmtNum, mergeData, migrate, type MergeSummary } from '../lib/core.ts';
+  import type { Data } from '../lib/types.ts';
   import { today } from '../lib/dates.ts';
 
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -30,15 +32,44 @@
     if (!file) return;
     message = error = '';
     try {
-      const data = migrate(JSON5.parse(await file.text()));
-      const summary = `${plural(data.programmes.length, 'programme')} and ${plural(data.workouts.length, 'workout')}`;
-      if (!confirm(`Replace everything on this device with ${summary} from the backup? This can't be undone.`)) return;
-      replaceAll(data);
-      steps = db.settings.weightSteps.map(fmtNum).join(', ');
-      message = `Imported ${summary}.`;
+      pending = migrate(JSON5.parse(await file.text()));
+      // Dry run on a copy, so the sheet can say what adding would do.
+      preview = mergeData(snapshot(), structuredClone(pending));
+      fileName = file.name;
+      importOpen = true;
     } catch (err) {
       error = `That file couldn't be imported. ${err instanceof Error ? err.message : ''}`;
     }
+  }
+
+  let importOpen = $state(false);
+  let pending = $state.raw<Data>();
+  let preview = $state<MergeSummary>();
+  let fileName = $state('');
+  const fileSummary = $derived(pending ? `${plural(pending.programmes.length, 'programme')} and ${plural(pending.workouts.length, 'workout')}` : '');
+
+  function doMerge() {
+    if (!pending) return;
+    const s = mergeIn(pending);
+    const parts = [s.programmesAdded && plural(s.programmesAdded, 'programme'), s.workoutsAdded && plural(s.workoutsAdded, 'workout')].filter(Boolean);
+    message = parts.length || s.workoutsUpdated
+      ? `Added ${parts.join(' and ') || 'nothing new'}${s.workoutsUpdated ? `, and filled in ${plural(s.workoutsUpdated, 'planned workout')} done elsewhere` : ''}.`
+      : 'Everything in that backup is already here.';
+    close();
+  }
+
+  function doReplace() {
+    if (!pending) return;
+    if (!confirm(`Delete everything on this device and use the ${fileSummary} from the backup instead? This can't be undone.`)) return;
+    replaceAll(pending);
+    steps = db.settings.weightSteps.map(fmtNum).join(', ');
+    message = `Replaced everything with ${fileSummary}.`;
+    close();
+  }
+
+  function close() {
+    importOpen = false;
+    pending = undefined;
   }
 
   function saveSteps() {
@@ -77,7 +108,24 @@
   <p class="muted">Up to four steps, separated by commas.</p>
 </div>
 
+<Sheet bind:open={importOpen} label="Import a backup">
+  <h2 class="sheet-title">Import {fileName}</h2>
+  <p class="muted">The backup has {fileSummary}.</p>
+  {#if preview}
+    <ul class="what">
+      <li>Adds <strong>{plural(preview.programmesAdded, 'programme')}</strong> and <strong>{plural(preview.workoutsAdded, 'workout')}</strong></li>
+      {#if preview.workoutsUpdated}<li>Fills in <strong>{plural(preview.workoutsUpdated, 'planned workout')}</strong> that the backup has as done</li>{/if}
+      {#if preview.skipped}<li>Leaves <strong>{plural(preview.skipped, 'workout')}</strong> that are already here as they are</li>{/if}
+    </ul>
+  {/if}
+  <button class="btn primary wide" onclick={doMerge}>Add to what's here</button>
+  <button class="btn danger wide replace" onclick={doReplace}>Replace everything instead</button>
+</Sheet>
+
 <style>
+  .sheet-title { color: var(--text); font-size: 1.125rem; margin: 0 0 0.25rem; }
+  .what { margin: 0.75rem 0 1rem; padding-left: 1.25rem; display: grid; gap: 0.25rem; }
+  .replace { margin-top: 0.5rem; }
   .actions { margin: 0.75rem 0; }
   .card > p + p { margin-top: 0.5rem; }
 </style>

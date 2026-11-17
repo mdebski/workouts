@@ -1,4 +1,4 @@
-import { addDays, diffDays, maxISO, weekday } from './dates.ts';
+import { addDays, diffDays, fmtShort, maxISO, weekday } from './dates.ts';
 import type { ISODate, Schedule } from './types.ts';
 
 /** Upper bound on how far ahead we ever look, so a bad rule can't loop forever. */
@@ -17,6 +17,21 @@ export function* occurrences(s: Schedule, from: ISODate = s.start): Generator<IS
   for (let i = 0; i < MAX_SCAN_DAYS; i++, date = addDays(date, 1)) {
     if (matches(s, date)) yield date;
   }
+}
+
+/** The last day a programme can have a workout on, if its end is tied to the calendar. */
+export function lastDay(s: Schedule): ISODate | undefined {
+  if (s.end.kind === 'until') return s.end.date;
+  if (s.end.kind === 'weeks') return addDays(s.start, Math.max(1, s.end.n) * 7 - 1);
+  return undefined;
+}
+
+export function describeEnd(s: Schedule): string {
+  const { end } = s;
+  if (end.kind === 'count') return end.n === 1 ? '1 workout' : `${end.n} workouts`;
+  if (end.kind === 'weeks') return end.n === 1 ? 'for 1 week' : `for ${end.n} weeks`;
+  if (end.kind === 'until') return `until ${fmtShort(end.date)}`;
+  return 'no end date';
 }
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];

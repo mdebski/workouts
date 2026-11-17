@@ -3,7 +3,7 @@
   import Icon from '../components/Icon.svelte';
   import { db, saveProgramme } from '../lib/state.svelte.ts';
   import { describe } from '../lib/core.ts';
-  import { describeRepeat } from '../lib/schedule.ts';
+  import { describeEnd, describeRepeat } from '../lib/schedule.ts';
   import { fmtShort, isISODate, today as todayISO } from '../lib/dates.ts';
   import { go } from '../lib/router.svelte.ts';
   import { decodeProgramme, isIOSBrowserTab } from '../lib/share.ts';
@@ -38,11 +38,7 @@
   );
 
   const duplicate = $derived(programme ? db.programmes.some((p) => p.name === programme!.name) : false);
-  const ends = $derived.by(() => {
-    const end = programme?.schedule.end;
-    if (!end) return '';
-    return end.kind === 'count' ? `${end.n} workouts` : end.kind === 'until' ? `until ${fmtShort(end.date)}` : 'no end date';
-  });
+  const ends = $derived(programme ? describeEnd(programme.schedule) : '');
 
   function add() {
     if (!programme) return;

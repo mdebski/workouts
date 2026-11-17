@@ -1,3 +1,2 @@
-import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
-
-export default { preprocess: vitePreprocess() };
+// Svelte 5 strips TypeScript types itself, so no preprocessor is needed.
+export default {};

@@ -8,6 +8,7 @@
   import History from './routes/History.svelte';
   import Settings from './routes/Settings.svelte';
   import AddProgramme from './routes/AddProgramme.svelte';
+  import Search from './routes/Search.svelte';
 
   const route = $derived(router.route);
 </script>
@@ -27,6 +28,9 @@
     <Programmes />
   {:else if route.name === 'add'}
     {#key route.id}<AddProgramme payload={route.id!} />{/key}
+  {:else if route.name === 'search'}
+    <!-- Re-created when a link brings a different query; typing only rewrites the address, so it doesn't. -->
+    {#key route.query.get('q')}<Search />{/key}
   {:else if route.name === 'settings'}
     <Settings />
   {:else}

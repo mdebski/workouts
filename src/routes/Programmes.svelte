@@ -2,7 +2,7 @@
   import Icon from '../components/Icon.svelte';
   import { db } from '../lib/state.svelte.ts';
   import { statusOf } from '../lib/core.ts';
-  import { describeRepeat } from '../lib/schedule.ts';
+  import { describeEnd, describeRepeat } from '../lib/schedule.ts';
   import { fmtShort, today as todayISO } from '../lib/dates.ts';
   import Sheet from '../components/Sheet.svelte';
   import { go } from '../lib/router.svelte.ts';
@@ -14,9 +14,7 @@
   const archived = $derived(db.programmes.filter((p) => p.archived));
 
   function summary(p: Programme): string {
-    const { end, start } = p.schedule;
-    const ends = end.kind === 'count' ? `${end.n} workouts` : end.kind === 'until' ? `until ${fmtShort(end.date)}` : 'no end';
-    return `${describeRepeat(p.schedule)} · from ${fmtShort(start)} · ${ends}`;
+    return `${describeRepeat(p.schedule)} · from ${fmtShort(p.schedule.start)} · ${describeEnd(p.schedule)}`;
   }
 
   let shared = $state({ id: '', text: '' });
@@ -130,7 +128,7 @@
     </label>
     {#if pasteError}<p class="error" role="alert">{pasteError}</p>{/if}
     <div class="row">
-      {#if navigator.clipboard?.readText}<button type="button" class="btn grow" onclick={pasteFromClipboard}>Paste</button>{/if}
+      {#if 'clipboard' in navigator}<button type="button" class="btn grow" onclick={pasteFromClipboard}>Paste</button>{/if}
       <button type="submit" class="btn primary grow">Continue</button>
     </div>
   </form>

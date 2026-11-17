@@ -17,7 +17,11 @@
   class="sheet"
   closedby="any"
   aria-label={label}
-  onclose={() => (open = false)}
+  onclose={() => {
+    // The close event can arrive after the exit animation. If the sheet has been
+    // reopened in the meantime, this is the old close and must not shut the new one.
+    if (!el.open) open = false;
+  }}
   oncancel={(e) => {
     // Route Esc and light dismiss through the animated close.
     e.preventDefault();

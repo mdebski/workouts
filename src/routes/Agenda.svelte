@@ -1,12 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Icon from '../components/Icon.svelte';
+  import Sheet from '../components/Sheet.svelte';
   import { db } from '../lib/state.svelte.ts';
   import { durationMin, slotInfo, statusOf } from '../lib/core.ts';
   import { addDays, fmtMonth, fmtWeekday, today as todayISO } from '../lib/dates.ts';
   import type { Workout } from '../lib/types.ts';
 
   const today = todayISO();
+  let addOpen = $state(false);
   let pastDays = $state(14);
   let futureDays = $state(42);
 
@@ -37,7 +39,8 @@
 
 <header class="bar">
   <h1 tabindex="-1">Workouts</h1>
-  <a class="icon-btn add" href="#/w/new/edit?date={today}" aria-label="Add a one-off workout"><Icon name="plus" /></a>
+  <button class="icon-btn add" aria-label="Add a workout or programme" aria-haspopup="dialog" onclick={() => (addOpen = true)}><Icon name="plus" /></button>
+  <a class="icon-btn" href="#/search" aria-label="Search exercises"><Icon name="search" /></a>
   <a class="icon-btn" href="#/programmes" aria-label="Programmes"><Icon name="list" /></a>
   <a class="icon-btn" href="#/settings" aria-label="Settings"><Icon name="settings" /></a>
 </header>
@@ -79,7 +82,24 @@
 
 <button class="btn small wide more" onclick={() => (futureDays += 28)}>Show later</button>
 
+<Sheet bind:open={addOpen} label="What do you want to add?">
+  <nav class="choices" aria-label="Add">
+    <a class="choice" href="#/w/new/edit?date={today}" onclick={() => (addOpen = false)}>
+      <span class="emoji" aria-hidden="true"><Icon name="bolt" /></span>
+      <span><strong>One-off workout</strong><span class="muted">A single session on a day you pick</span></span>
+    </a>
+    <a class="choice" href="#/p/new" onclick={() => (addOpen = false)}>
+      <span class="emoji" aria-hidden="true"><Icon name="calendar" /></span>
+      <span><strong>Programme</strong><span class="muted">A workout that repeats on a schedule</span></span>
+    </a>
+  </nav>
+</Sheet>
+
 <style>
+  .choices { display: grid; gap: 0.5rem; }
+  .choice { display: flex; align-items: center; gap: 0.75rem; padding: 0.875rem; border-radius: var(--radius); background: var(--raise); }
+  .choice > span:last-child { display: grid; }
+  .choice .emoji { background: var(--accent); color: var(--accent-ink); }
   .add { color: var(--accent); }
   .more { margin: 0.5rem 0; }
   .days { list-style: none; margin: 0; padding: 0; }

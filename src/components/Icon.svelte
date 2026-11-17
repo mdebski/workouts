@@ -19,7 +19,14 @@
     face: 'M12 3a9 9 0 100 18 9 9 0 000-18zM9 10h.01M15 10h.01M9 15c1.5 1 4.5 1 6 0',
     share: 'M12 15V4M8 8l4-4 4 4M5 13v6h14v-6',
     link: 'M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1',
+    'first-to-end': 'M4 7h9M4 12h9M4 17h5M17 6v12M17 18l-3-3M17 18l3-3',
+    'last-to-start': 'M4 7h5M4 12h9M4 17h9M17 18V6M17 6l-3 3M17 6l3 3',
+    lines: 'M4 6h16M4 10h16M4 14h10M17 15v6M14 18h6',
+    calendar: 'M5 6h14v14H5zM5 10h14M9 4v4M15 4v4',
+    bolt: 'M13 3L5 14h6l-1 7 8-11h-6z',
+    search: 'M11 4a7 7 0 100 14 7 7 0 000-14zM20 20l-4-4',
     table: 'M4 5h16v14H4zM4 10h16M10 5v14',
+    dumbbell: 'M6.5 7v10M3.5 9.5v5M17.5 7v10M20.5 9.5v5M6.5 12h11',
   } as const;
   export type IconName = keyof typeof PATHS;
 </script>

@@ -1,7 +1,7 @@
 import { tick } from 'svelte';
 
 export interface Route {
-  name: 'agenda' | 'workout' | 'programmes' | 'edit-programme' | 'edit-workout' | 'history' | 'settings' | 'add';
+  name: 'agenda' | 'workout' | 'programmes' | 'edit-programme' | 'edit-workout' | 'history' | 'settings' | 'add' | 'search';
   id?: string;
   query: URLSearchParams;
 }
@@ -14,6 +14,7 @@ function parse(hash: string): Route {
   if (a === 'p' && b) return { name: c === 'history' ? 'history' : 'edit-programme', id: b, query };
   if (a === 'programmes') return { name: 'programmes', query };
   if (a === 'add' && b) return { name: 'add', id: b, query };
+  if (a === 'search') return { name: 'search', query };
   if (a === 'settings') return { name: 'settings', query };
   return { name: 'agenda', query };
 }

@@ -1,4 +1,4 @@
-import { emptyData, migrate, syncProgramme, topUp, deleteProgramme, uid, clone } from './core.ts';
+import { emptyData, mergeData, migrate, type MergeSummary, syncProgramme, topUp, deleteProgramme, uid, clone } from './core.ts';
 import { today } from './dates.ts';
 import type { Data, Item, Programme, Workout } from './types.ts';
 
@@ -60,6 +60,15 @@ export function saveWorkout(w: Workout): void {
 
 export function removeWorkout(id: string): void {
   db.workouts = db.workouts.filter((w) => w.id !== id);
+}
+
+export function mergeIn(data: Data): MergeSummary {
+  const local = snapshot();
+  const summary = mergeData(local, data);
+  db.programmes = local.programmes;
+  db.workouts = local.workouts;
+  topUp(db, today());
+  return summary;
 }
 
 export function replaceAll(data: Data): void {

@@ -14,24 +14,33 @@ export interface RepsExercise extends ExerciseBase {
   type: 'reps';
   sets: number;
   reps: number;
-  /** What gets recorded per workout: nothing, a weight (kg) or a hold time (s). */
-  measure: 'none' | 'weight' | 'time';
+  /** Varying reps, one entry per set (e.g. 5, 5, 10). When set, `sets` is its length and `reps` its first entry. */
+  repScheme?: number[];
+  /**
+   * What gets recorded per workout: nothing, a weight (kg), several weights (e.g. one
+   * per set, or for two movements done together), a hold time (s) or free text.
+   */
+  measure: 'none' | 'weight' | 'weights' | 'time' | 'text';
+  /** How many weights are recorded when `measure` is 'weights'. */
+  weightCount?: number;
   restBetweenSets?: number;
 }
 
 export interface TimedExercise extends ExerciseBase {
   type: 'timed';
+  /** Each set is `reps` rounds of work then rest, e.g. 6 × (5 s on, 5 s off). */
   sets: number;
+  reps: number;
   workSec: number;
   restSec: number;
   trackWeight: boolean;
+  restBetweenSets?: number;
 }
 
 export interface ActivityExercise extends ExerciseBase {
   type: 'activity';
-  /** Count of repetitions, or minutes. */
+  /** What gets recorded when it is done: how many, or how many minutes. Nothing is preset. */
   measure: 'count' | 'time';
-  target: number;
 }
 
 export type Exercise = RepsExercise | TimedExercise | ActivityExercise;
@@ -52,7 +61,7 @@ export type Repeat =
   /** 1 = Monday … 7 = Sunday */
   | { kind: 'weekdays'; days: number[] };
 
-export type End = { kind: 'count'; n: number } | { kind: 'until'; date: ISODate } | { kind: 'never' };
+export type End = { kind: 'count'; n: number } | { kind: 'weeks'; n: number } | { kind: 'until'; date: ISODate } | { kind: 'never' };
 
 export interface Schedule {
   start: ISODate;
@@ -74,6 +83,12 @@ export interface Result {
   setsDone: number;
   /** kg, seconds, count or minutes depending on the exercise. */
   value?: number;
+  /** Several weights, for exercises that record them; a gap is null. */
+  values?: (number | null)[];
+  /** Free text, for exercises that record it (e.g. which band was used). */
+  text?: string;
+  /** The weight was done with dumbbells instead of the usual implement: value(s) are per dumbbell. */
+  dumbbells?: boolean;
   feel?: Feel;
 }
 

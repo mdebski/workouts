@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import Icon from '../components/Icon.svelte';
   import { db, getProgramme } from '../lib/state.svelte.ts';
-  import { flatten, fmtNum, statusOf, unitOf, valueOf } from '../lib/core.ts';
+  import { fmtValues, recordsWeights, flatten, fmtNum, statusOf, unitOf, valueOf } from '../lib/core.ts';
   import { fmtShort, today as todayISO } from '../lib/dates.ts';
   import type { Exercise } from '../lib/types.ts';
 
@@ -52,10 +52,15 @@
               {@const present = flatten(w.items).find((f) => f.ex.id === ex.id)}
               {@const r = w.results[ex.id]}
               <td class={r?.feel ?? ''}>
+                {#if r?.dumbbells}<span class="db" title="Dumbbells: weight per dumbbell"><Icon name="dumbbell" size={14} /></span><span class="sr">Dumbbells, </span>{/if}
                 {#if !present}
                   <span class="muted" aria-label="Not in this workout">·</span>
-                {:else if unit && valueOf(w, present.ex) !== undefined}
-                  {fmtNum(valueOf(w, present.ex)!)}
+                {:else if recordsWeights(present.ex) && r?.values?.some((v) => v !== null)}
+                  {fmtValues(r.values)}
+                {:else if r?.text}
+                  <span class="text" title={r.text}>{r.text}</span>
+                {:else if unit && (valueOf(w, present.ex) !== undefined || present.ex.type === 'activity')}
+                  {fmtNum(valueOf(w, present.ex) ?? 0)}
                 {:else if (r?.setsDone ?? 0) >= present.sets}
                   <Icon name="check" size={16} /><span class="sr">Done</span>
                 {:else}
@@ -84,9 +89,13 @@
   /* Row headers stay put while the workouts scroll sideways. */
   tbody th, thead th:first-child { position: sticky; left: 0; background: var(--bg); text-align: left; max-width: 9rem; white-space: normal; z-index: 2; }
   td { background: var(--card); min-width: 3.75rem; }
+  .text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; max-width: 9rem; white-space: normal; text-align: left; }
   td.easy, .key.easy { background: var(--ok); color: var(--ok-ink); }
   td.hard, .key.hard { background: var(--warn); color: var(--warn-ink); }
   td.failed, .key.failed { background: var(--bad); color: var(--bad-ink); }
+  .db { display: inline-flex; vertical-align: -0.125em; margin-inline-end: 0.125rem; opacity: 0.8; }
+  /* Secondary text in a coloured cell takes the cell's own dark text colour, so it stays readable. */
+  td.easy .muted, td.hard .muted, td.failed .muted { color: inherit; }
   td :global(.muted) { font-size: inherit; }
   .legend { display: flex; gap: 0.375rem; margin-top: 0.75rem; }
   .key { padding: 0.125rem 0.625rem; border-radius: 99px; font-weight: 600; }

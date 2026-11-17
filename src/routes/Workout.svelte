@@ -3,7 +3,7 @@
   import Icon from '../components/Icon.svelte';
   import ValueSheet from '../components/ValueSheet.svelte';
   import { db, getWorkout, removeWorkout } from '../lib/state.svelte.ts';
-  import { copyValues, describe, durationMin, flatten, fmtSecs, fmtValue, isComplete, matchingValue, neighbours, previousDone, resultOf, slotInfo, statusOf, unitOf, valueOf, type Unit } from '../lib/core.ts';
+  import { recordsKg, valuesOf, matchingValues, recordsWeights, fmtValues, copyValues, matchingText, recordsText, fmtNum, describe, durationMin, flatten, fmtSecs, fmtValue, isComplete, matchingValue, neighbours, previousDone, resultOf, slotInfo, statusOf, unitOf, valueOf, type Unit } from '../lib/core.ts';
   import { fmtDay, fmtLong, isISODate, today as todayISO } from '../lib/dates.ts';
   import { go } from '../lib/router.svelte.ts';
   import { timer, type Phase } from '../lib/timer.svelte.ts';
@@ -29,6 +29,8 @@
   let feelOpen = $state('');
   let sheetOpen = $state(false);
   let sheetFor = $state('');
+  /** Which of several weights the sheet edits, or -1 for the single value. */
+  let sheetSlot = $state(-1);
   let copied = $state('');
   const sheetEx = $derived(found ? flatten(found.items).find((f) => f.ex.id === sheetFor)?.ex : undefined);
 
@@ -45,8 +47,9 @@
     if (w.status === 'planned') w.startedAt ??= new Date().toISOString();
   };
 
-  function openValue(ex: Exercise) {
+  function openValue(ex: Exercise, slot = -1) {
     sheetFor = ex.id;
+    sheetSlot = slot;
     sheetOpen = true;
   }
 
@@ -65,7 +68,7 @@
       const roundDone = ss.items.every((e) => (w.results[e.id]?.setsDone ?? 0) >= done);
       if (roundDone) rest = (done < ss.rounds ? ss.restBetweenRounds : ss.restAfter) ?? 0;
     } else if (done < sets) {
-      rest = ex.type === 'reps' ? (ex.restBetweenSets ?? 0) : ex.type === 'timed' ? ex.restSec : 0;
+      rest = ex.type === 'activity' ? 0 : (ex.restBetweenSets ?? 0);
     } else {
       rest = ex.restAfter ?? 0;
     }
@@ -82,18 +85,28 @@
     else timer.stop();
   }
 
-  /** Timed exercise: runs work and rest for every remaining set, ticking as it goes. */
+  /** One set of a timed exercise: `reps` rounds of work with the off time in between. */
+  function rounds(ex: Extract<Exercise, { type: 'timed' }>, prefix: string, onDone: () => void): Phase[] {
+    const phases: Phase[] = [];
+    for (let i = 0; i < ex.reps; i++) {
+      const last = i === ex.reps - 1;
+      phases.push({ label: `${prefix} · ${i + 1} of ${ex.reps}`, kind: 'work', seconds: ex.workSec, onEnd: last ? onDone : undefined });
+      if (!last) phases.push({ label: 'Off', kind: 'rest', seconds: ex.restSec });
+    }
+    return phases;
+  }
+
+  /** Timed exercise: runs every remaining set, ticking each one off as it finishes. */
   function runIntervals(w: Workout, ex: Extract<Exercise, { type: 'timed' }>, sets: number, ss?: Superset) {
     touch(w);
-    const r = resultOf(w, ex.id);
     if (ss) {
-      return timer.start([{ label: ex.name, kind: 'work', seconds: ex.workSec, onEnd: () => { resultOf(w, ex.id).setsDone++; afterTick(w, ex, sets, ss); } }], ex.id);
+      return timer.start(rounds(ex, ex.name, () => { resultOf(w, ex.id).setsDone++; afterTick(w, ex, sets, ss); }), ex.id);
     }
     const phases: Phase[] = [];
-    for (let s = r.setsDone; s < sets; s++) {
-      phases.push({ label: `${ex.name} · ${s + 1} of ${sets}`, kind: 'work', seconds: ex.workSec, onEnd: () => (resultOf(w, ex.id).setsDone = s + 1) });
-      const rest = s < sets - 1 ? ex.restSec : (ex.restAfter ?? 0);
-      phases.push({ label: 'Rest', kind: 'rest', seconds: rest });
+    for (let s = resultOf(w, ex.id).setsDone; s < sets; s++) {
+      const prefix = sets > 1 ? `${ex.name} · set ${s + 1}` : ex.name;
+      phases.push(...rounds(ex, prefix, () => (resultOf(w, ex.id).setsDone = s + 1)));
+      phases.push({ label: 'Rest', kind: 'rest', seconds: (s < sets - 1 ? ex.restBetweenSets : ex.restAfter) ?? 0 });
     }
     timer.start(phases, ex.id);
   }
@@ -107,6 +120,34 @@
       const r = resultOf(w, ex.id);
       if (r.setsDone < sets) { r.setsDone++; afterTick(w, ex, sets, ss); }
     } }], ex.id);
+  }
+
+  function record(w: Workout, ex: Exercise | undefined, value: number) {
+    if (!ex) return;
+    const r = resultOf(w, ex.id);
+    r.value = value;
+    touch(w);
+    // An activity is done once any amount is recorded (every round, inside a superset), and undone at zero.
+    if (ex.type === 'activity') {
+      const sets = flatten(w.items).find((f) => f.ex.id === ex.id)?.sets ?? 1;
+      const ss = w.items.find((it): it is Superset => it.type === 'superset' && it.items.some((e) => e.id === ex.id));
+      const was = r.setsDone;
+      r.setsDone = value > 0 ? sets : 0;
+      if (r.setsDone > was) afterTick(w, ex, sets, ss);
+    }
+  }
+
+  /** The − and + next to an activity's amount: one rep, or one minute. */
+  function nudge(w: Workout, ex: Exercise, d: 1 | -1) {
+    record(w, ex, Math.max(0, (valueOf(w, ex) ?? 0) + d));
+  }
+
+  function recordSlot(w: Workout, ex: Exercise, slot: number, value: number) {
+    const r = resultOf(w, ex.id);
+    const values = valuesOf(w, ex);
+    values[slot] = value;
+    r.values = values;
+    touch(w);
   }
 
   function copyLast(w: Workout) {
@@ -166,6 +207,14 @@
   {/if}
   <p class="muted status" role="status">{copied}</p>
 
+  {#snippet dumbbells(ex: Exercise)}
+    {@const on = !!w.results[ex.id]?.dumbbells}
+    <button class="icon-btn dumbbell" class:on aria-pressed={on} aria-label="{ex.name}: done with dumbbells (weight per dumbbell)" title="Dumbbells: weight per dumbbell"
+      onclick={() => { const r = resultOf(w, ex.id); if (on) delete r.dumbbells; else r.dumbbells = true; touch(w); }}>
+      <Icon name="dumbbell" size={20} />
+    </button>
+  {/snippet}
+
   {#snippet exercise(ex: Exercise, sets: number, ss?: Superset)}
     {@const r = w.results[ex.id]}
     {@const done = r?.setsDone ?? 0}
@@ -177,7 +226,8 @@
         <button class="icon-btn feel" aria-expanded={feelOpen === ex.id} aria-label={feel ? `Felt ${feel.label.toLowerCase()}. Change` : 'Set how it felt'} onclick={() => (feelOpen = feelOpen === ex.id ? '' : ex.id)}>
           {#if feel}<span aria-hidden="true">{feel.icon}</span>{:else}<Icon name="face" />{/if}
         </button>
-        {#if unit}<button class="chip" class:unset={valueOf(w, ex) === undefined} aria-label="{ex.name}: {fmtValue(valueOf(w, ex), unit)}. Change" onclick={() => openValue(ex)}>{fmtValue(valueOf(w, ex), unit)}</button>{/if}
+        {#if recordsKg(ex) && !recordsWeights(ex)}{@render dumbbells(ex)}{/if}
+        {#if unit && ex.type !== 'activity' && !recordsWeights(ex)}<button class="chip" class:unset={valueOf(w, ex) === undefined} aria-label="{ex.name}: {fmtValue(valueOf(w, ex), unit)}. Change" onclick={() => openValue(ex)}>{fmtValue(valueOf(w, ex), unit)}</button>{/if}
       </div>
       {#if feelOpen === ex.id}
         <div class="feels" role="group" aria-label="How did {ex.name} feel?">
@@ -187,10 +237,35 @@
         </div>
       {/if}
       <p class="muted">{describe(ex, !!ss)}{ex.description ? ` · ${ex.description}` : ''}</p>
+      {#if recordsWeights(ex)}
+        <div class="row weights" role="group" aria-label="{ex.name}: weights">
+          {#each valuesOf(w, ex) as v, i}
+            <button class="chip" class:unset={v === null} aria-label="{ex.name}, weight {i + 1}: {v === null ? 'not set' : `${fmtNum(v)} kg`}. Change" onclick={() => openValue(ex, i)}>{v === null ? '—' : fmtNum(v)}</button>
+          {/each}
+          <span class="muted">kg</span>
+          <span class="grow"></span>
+          {@render dumbbells(ex)}
+        </div>
+      {/if}
+      {#if recordsText(ex)}
+        {@const lastText = matchingText(last, ex)}
+        <textarea class="record" rows="1" aria-label="{ex.name}: note for this workout" placeholder={lastText ? `Last time: ${lastText}` : 'Note: band, grip, variation…'}
+          value={r?.text ?? ''} oninput={(e) => { resultOf(w, ex.id).text = e.currentTarget.value; touch(w); }}></textarea>
+      {/if}
+      {#if ex.type === 'activity'}
+        {@const v = valueOf(w, ex) ?? 0}
+        <div class="amount" role="group" aria-label="{ex.name}, {ex.measure === 'time' ? 'minutes' : 'count'}">
+          <button class="step" aria-label="One {ex.measure === 'time' ? 'minute' : ''} less" aria-disabled={!v} onclick={() => nudge(w, ex, -1)}>−</button>
+          <button class="value" aria-label="{fmtValue(v, unit)}. Type a value" onclick={() => openValue(ex)}>
+            <span class="num">{fmtNum(v)}</span><span class="unit">{ex.measure === 'time' ? 'min' : 'times'}</span>
+          </button>
+          <button class="step" aria-label="One {ex.measure === 'time' ? 'minute' : ''} more" onclick={() => nudge(w, ex, 1)}>+</button>
+        </div>
+      {:else}
       <div class="row sets">
         {#each { length: sets } as _, i}
-          <button class="set" class:on={i < done} aria-pressed={i < done} aria-label="{ex.name}, {ss ? 'round' : 'set'} {i + 1} of {sets}" onclick={() => tick(w, ex, sets, i, ss)}>
-            {#if i < done}<Icon name="check" size={18} />{:else}{i + 1}{/if}
+          <button class="set" class:on={i < done} aria-pressed={i < done} aria-label="{ex.name}, {ss ? 'round' : 'set'} {i + 1} of {sets}{ex.type === 'reps' && ex.repScheme && !ss ? `, ${ex.repScheme[i]} reps` : ''}" onclick={() => tick(w, ex, sets, i, ss)}>
+            {#if i < done}<Icon name="check" size={18} />{:else if ex.type === 'reps' && ex.repScheme && !ss}{ex.repScheme[i]}{:else}{i + 1}{/if}
           </button>
         {/each}
         <span class="grow"></span>
@@ -202,6 +277,7 @@
           {/if}
         {/if}
       </div>
+      {/if}
     </article>
   {/snippet}
 
@@ -213,6 +289,11 @@
       </section>
     {:else}
       {@render exercise(item, item.type === 'activity' ? 1 : item.sets)}
+    {/if}
+    {#if item.restAfter}
+      <button class="rest-row" aria-label="Start {item.restAfter} second rest" onclick={() => timer.start([{ label: 'Rest', kind: 'rest', seconds: item.restAfter ?? 0 }])}>
+        <Icon name="clock" size={16} /> Rest {item.restAfter} s <span class="grow"></span><Icon name="play" size={14} />
+      </button>
     {/if}
   {:else}
     <div class="card"><p><strong>No exercises yet</strong></p><p class="muted">Add some with the edit button above.</p></div>
@@ -252,12 +333,12 @@
     {@const unit = unitOf(sheetEx)!}
     <ValueSheet
       bind:open={sheetOpen}
-      name={sheetEx.name}
+      name={(sheetSlot >= 0 ? `${sheetEx.name} · weight ${sheetSlot + 1}` : sheetEx.name) + (w.results[sheetEx.id]?.dumbbells ? ' · per dumbbell' : '')}
       {unit}
-      value={valueOf(w, sheetEx)}
-      last={matchingValue(last, sheetEx)}
+      value={sheetSlot >= 0 ? (valuesOf(w, sheetEx)[sheetSlot] ?? undefined) : (valueOf(w, sheetEx) ?? (sheetEx.type === 'activity' ? 0 : undefined))}
+      last={sheetSlot >= 0 ? (matchingValues(last, sheetEx)?.[sheetSlot] ?? undefined) : matchingValue(last, sheetEx)}
       steps={unit === 'kg' ? db.settings.weightSteps : STEPS[unit]}
-      onset={(v) => { resultOf(w, sheetFor).value = v; touch(w); }}
+      onset={(v) => (sheetSlot >= 0 ? recordSlot(w, sheetEx, sheetSlot, v) : record(w, sheetEx, v))}
     />
   {/if}
 {/if}
@@ -277,6 +358,8 @@
   .ex.running { border-color: var(--accent); }
   .feel { font-size: 1.25rem; color: var(--muted); }
   .chip { min-height: 2.25rem; padding: 0 0.875rem; border: none; border-radius: 99px; background: var(--raise); color: var(--text); font: inherit; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; }
+  .dumbbell { color: var(--muted); }
+  .dumbbell.on { background: var(--accent); color: var(--accent-ink); }
   .chip.unset { background: transparent; box-shadow: inset 0 0 0 2px var(--line); color: var(--muted); }
 
   .feels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.375rem; padding: 0.375rem; background: var(--bg); border-radius: 12px; }
@@ -288,8 +371,22 @@
   .set { display: inline-grid; place-items: center; width: 2.75rem; height: 2.75rem; border-radius: 50%; border: 2px solid var(--line); background: none; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
   .set.on { background: var(--ok); border-color: var(--ok); color: var(--ok-ink); }
 
+  .weights { flex-wrap: wrap; gap: 0.375rem; }
+  .record { field-sizing: content; min-height: 2.75rem; resize: none; }
+  .amount { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem; }
+  .amount .step { flex: none; width: 3.25rem; height: 3.25rem; border: none; border-radius: 50%; background: var(--raise); color: var(--text); font: inherit; font-size: 1.75rem; font-weight: 600; line-height: 1; cursor: pointer; touch-action: manipulation; }
+  .amount .step:hover { background: var(--line); }
+  .amount .step[aria-disabled='true'] { color: var(--line); }
+  .amount .value { flex: 1; min-width: 0; display: flex; align-items: baseline; justify-content: center; gap: 0.375rem; min-height: 3.25rem; border: none; border-radius: 12px; background: none; color: var(--text); font: inherit; cursor: pointer; }
+  .amount .value:hover { background: var(--raise); }
+  .amount .num { font-size: 2rem; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1; }
+  .amount .unit { color: var(--muted); font-size: 0.875rem; }
   .superset { border: 2px dashed #7f77dd; border-radius: 22px; padding: 0.5rem 0.5rem 0; margin-bottom: 0.5rem; }
   .ss-head { display: flex; align-items: center; gap: 0.375rem; color: var(--accent); font-size: 0.8125rem; font-weight: 600; margin: 0 0.375rem 0.5rem; }
+
+  /* The rest between two exercises: starts by itself when the one above is finished, or on tap. */
+  .rest-row { display: flex; align-items: center; gap: 0.5rem; width: calc(100% - 2rem); min-height: 2.75rem; margin: 0 1rem 0.5rem; padding: 0 0.875rem; border: 2px dashed var(--line); border-radius: 99px; background: none; color: var(--muted); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer; }
+  .rest-row .grow { flex: 1; }
 
   .notes { margin-top: 1rem; }
   textarea { field-sizing: content; min-height: 4rem; resize: vertical; }

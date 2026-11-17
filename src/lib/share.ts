@@ -23,14 +23,23 @@ function exercise(v: unknown): Exercise {
   if (!name) throw new Error('exercise without a name');
   const base = { id: uid(), name, description: str(v.description, 300) || undefined, restAfter: rest(v.restAfter) };
   if (v.type === 'reps') {
-    const measure = v.measure === 'weight' || v.measure === 'time' ? v.measure : 'none';
-    return { ...base, type: 'reps', sets: int(v.sets, 1, 99, 1), reps: int(v.reps, 1, 999, 1), measure, restBetweenSets: rest(v.restBetweenSets) };
+    const measure = v.measure === 'weight' || v.measure === 'weights' || v.measure === 'time' || v.measure === 'text' ? v.measure : 'none';
+    const scheme = Array.isArray(v.repScheme) ? v.repScheme.slice(0, 20).map((n) => int(n, 1, 999, 1)) : [];
+    return {
+      ...base, type: 'reps',
+      sets: scheme.length || int(v.sets, 1, 99, 1), reps: scheme[0] ?? int(v.reps, 1, 999, 1),
+      repScheme: scheme.length ? scheme : undefined,
+      measure, weightCount: measure === 'weights' ? int(v.weightCount, 2, 6, 2) : undefined,
+      restBetweenSets: rest(v.restBetweenSets),
+    };
   }
   if (v.type === 'timed') {
-    return { ...base, type: 'timed', sets: int(v.sets, 1, 99, 1), workSec: int(v.workSec, 1, 3600, 30), restSec: int(v.restSec, 0, 3600, 0), trackWeight: v.trackWeight === true };
+    // Links made before sets-of-rounds existed carry the rounds in `sets`.
+    const old = typeof v.reps !== 'number';
+    return { ...base, type: 'timed', sets: old ? 1 : int(v.sets, 1, 99, 1), reps: int(old ? v.sets : v.reps, 1, 99, 1), restBetweenSets: rest(v.restBetweenSets), workSec: int(v.workSec, 1, 3600, 30), restSec: int(v.restSec, 0, 3600, 0), trackWeight: v.trackWeight === true };
   }
   if (v.type === 'activity') {
-    return { ...base, type: 'activity', measure: v.measure === 'count' ? 'count' : 'time', target: num(v.target, 0.1, 100_000, 1) };
+    return { ...base, type: 'activity', measure: v.measure === 'count' ? 'count' : 'time' };
   }
   throw new Error('unknown exercise type');
 }
@@ -54,6 +63,7 @@ function repeat(v: unknown): Repeat {
 
 function end(v: unknown): End {
   if (isObj(v) && v.kind === 'count') return { kind: 'count', n: int(v.n, 1, 1000, 12) };
+  if (isObj(v) && v.kind === 'weeks') return { kind: 'weeks', n: int(v.n, 1, 520, 4) };
   if (isObj(v) && v.kind === 'until' && isISODate(v.date)) return { kind: 'until', date: v.date };
   return { kind: 'never' };
 }
@@ -105,7 +115,7 @@ export async function encodeProgramme(p: Programme): Promise<string> {
 export async function decodeProgramme(payload: string, today: ISODate): Promise<Programme> {
   if (payload.length > MAX_PAYLOAD) throw new Error('link too long');
   const [kind, body] = [payload.slice(0, 2), payload.slice(2)];
-  let bytes = fromBase64Url(body);
+  let bytes: Uint8Array = fromBase64Url(body);
   if (kind === 'z.') bytes = await pipe(bytes, new DecompressionStream('deflate-raw'));
   else if (kind !== 'j.') throw new Error('unknown link format');
   if (bytes.length > 200_000) throw new Error('link too large');

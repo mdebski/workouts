@@ -34,6 +34,8 @@ const fmt = (opts: Intl.DateTimeFormatOptions) => {
 };
 
 export const fmtDay = fmt({ weekday: 'short', day: 'numeric', month: 'short' });
+/** Like fmtDay, with the year added when it isn't the current one. */
+export const fmtDayAuto = (iso: ISODate) => (iso.slice(0, 4) === today().slice(0, 4) ? fmtDay(iso) : `${fmtDay(iso)} ${iso.slice(0, 4)}`);
 export const fmtShort = fmt({ day: 'numeric', month: 'short' });
 export const fmtWeekday = fmt({ weekday: 'short' });
 export const fmtMonth = fmt({ month: 'long', year: 'numeric' });
