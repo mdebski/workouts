@@ -1,9 +1,9 @@
 <script lang="ts">
   import Icon from '../components/Icon.svelte';
   import { db, getProgramme } from '../lib/state.svelte.ts';
-  import { fmtValues, recordsWeights, flatten, fmtNum, statusOf, unitOf, valueOf } from '../lib/core.ts';
+  import { describePlan, fmtValues, recordsWeights, flatten, fmtNum, statusOf, unitOf, valueOf } from '../lib/core.ts';
   import { fmtShort, today as todayISO } from '../lib/dates.ts';
-  import type { Exercise } from '../lib/types.ts';
+  import type { Exercise, Item } from '../lib/types.ts';
 
   let { id }: { id: string } = $props();
   const today = todayISO();
@@ -17,9 +17,12 @@
 
   // One row per exercise: the programme's current ones first, then any that only exist in history.
   const rows = $derived.by(() => {
-    const seen = new Map<string, Exercise>();
-    for (const { ex } of flatten(programme?.items ?? [])) seen.set(ex.id, ex);
-    for (const w of done) for (const { ex } of flatten(w.items)) if (!seen.has(ex.id)) seen.set(ex.id, ex);
+    const seen = new Map<string, { ex: Exercise; inSuperset: boolean }>();
+    const add = (items: Item[]) => {
+      for (const { ex, supersetId } of flatten(items)) if (!seen.has(ex.id)) seen.set(ex.id, { ex, inSuperset: !!supersetId });
+    };
+    add(programme?.items ?? []);
+    for (const w of done) add(w.items);
     return [...seen.values()];
   });
 
@@ -42,15 +45,17 @@
         <tr>
           <th scope="col"><span class="sr">Exercise</span></th>
           {#each columns as w (w.id)}
-            <th scope="col" class:missed-col={w.status !== 'done'}><a href="#/w/{w.id}">{fmtShort(w.date)}</a>{#if w.status !== 'done'}<span class="sr"> (missed)</span>{/if}</th>
+            <th scope="col" class:missed-col={w.status !== 'done'} class:today={w.date === today}><a href="#/w/{w.id}">{fmtShort(w.date)}</a>{#if w.status !== 'done'}<span class="sr"> (missed)</span>{/if}</th>
           {/each}
         </tr>
       </thead>
       <tbody>
-        {#each rows as ex (ex.id)}
+        {#each rows as { ex, inSuperset } (ex.id)}
           {@const unit = unitOf(ex)}
+          {@const reps = describePlan(ex, inSuperset).replace(/^Activity · record .*$/, '')}
+          {@const shownUnit = unit && unit !== '×' ? unit : ''}
           <tr>
-            <th scope="row">{ex.name}{#if unit && unit !== '×'}{' '}<span class="muted">{unit}</span>{/if}</th>
+            <th scope="row">{ex.name}<span class="muted plan">{[reps, shownUnit].filter(Boolean).join('; ')}</span></th>
             {#each columns as w (w.id)}
               {#if w.status !== 'done'}
                 <td class="missed-cell"><span class="sr">Missed</span></td>
@@ -99,6 +104,10 @@
   td { background: var(--card); min-width: 3.75rem; }
   /* Missed workouts: struck-through date and a red slash through each cell, as in the agenda. */
   .missed-col a { color: var(--bad); text-decoration: line-through; }
+  /* Sets and reps, then the unit, on their own line under the name: "3 × 5; kg". */
+  .plan { display: block; white-space: nowrap; font-size: 0.8125rem; }
+  /* Today's workout stands out among the dates. */
+  thead th.today a { color: var(--accent-ink); background: var(--accent); border-radius: 8px; padding: 0.125rem 0.375rem; text-decoration: none; }
   td.missed-cell { background: linear-gradient(to top right, transparent calc(50% - 1px), var(--bad-line) calc(50% - 1px), var(--bad-line) calc(50% + 1px), transparent calc(50% + 1px)), var(--card); opacity: 0.6; }
   .text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; max-width: 9rem; white-space: normal; text-align: left; }
   /* How it felt: a small dot in the cell's corner, so the values stay the focus. */

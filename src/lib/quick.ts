@@ -4,7 +4,6 @@
 //   Bench 5;5;10          3 sets with varying reps: 5, 5 and 10
 //   Plank 3x hold         3 holds, hold time recorded each workout
 //   Dead hang 6x5/5       6 rounds of 5 s on, 5 s off
-//   Dead hang 3x6x5/5     3 sets of that
 //   Warm-up min           an activity: minutes are recorded when it's done
 //   Jumping jacks count   an activity: a count is recorded when it's done
 //   Run km                an activity: a distance in km is recorded when it's done
@@ -19,7 +18,7 @@ const X = '\\s*[x×*]\\s*';
 const NAME = '^(.+?)[\\s,:–-]+';
 const RULES: [RegExp, (m: RegExpMatchArray, d: QuickDefaults) => Omit<Exercise, 'id' | 'name'>][] = [
   [new RegExp(`${NAME}(?:(\\d+)${X})?(\\d+)${X}(\\d+)\\s*s?\\s*/\\s*(\\d+)\\s*s?$`, 'i'),
-    (m) => ({ type: 'timed', sets: Number(m[2] ?? 1), reps: Number(m[3]), workSec: Number(m[4]), restSec: Number(m[5]), trackWeight: false })],
+    (m) => ({ type: 'timed', reps: Number(m[2] ?? 1) * Number(m[3]), workSec: Number(m[4]), restSec: Number(m[5]), trackWeight: false })],
   [new RegExp(`${NAME}(\\d+(?:\\s*[;/]\\s*\\d+)+)$`, 'i'), (m, d) => {
     const scheme = m[2].split(/\s*[;/]\s*/).map(Number);
     return { type: 'reps', sets: scheme.length, reps: scheme[0], repScheme: scheme, measure: d.measure === 'time' ? 'weight' : d.measure, weightCount: d.weightCount, restBetweenSets: d.restBetweenSets };
@@ -45,7 +44,7 @@ export function parseQuickLine(line: string, defaults: QuickDefaults): Exercise 
       Object.assign(ex, { sets: clamp(ex.sets, 99), reps: clamp(ex.reps, 999) });
       if (ex.repScheme) ex.repScheme = ex.repScheme.map((n) => clamp(n, 999));
     }
-    if (ex.type === 'timed') Object.assign(ex, { sets: clamp(ex.sets, 99), reps: clamp(ex.reps, 99), workSec: clamp(ex.workSec, 3600), restSec: Math.min(3600, ex.restSec) });
+    if (ex.type === 'timed') Object.assign(ex, { reps: clamp(ex.reps, 99), workSec: clamp(ex.workSec, 3600), restSec: Math.min(3600, ex.restSec) });
     return ex;
   }
   return { id: uid(), name: text.slice(0, 80), type: 'reps', ...defaults };

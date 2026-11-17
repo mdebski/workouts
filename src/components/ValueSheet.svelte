@@ -1,6 +1,7 @@
 <script lang="ts">
   import Sheet from './Sheet.svelte';
   import { fmtNum, fmtValue, type Unit } from '../lib/core.ts';
+  import type { Feel } from '../lib/types.ts';
   import { parseDuration } from '../lib/duration.ts';
 
   interface Props {
@@ -14,8 +15,17 @@
     /** When given, the sheet shows a dumbbell checkbox (weights only). */
     dumbbells?: boolean;
     ondumbbells?: (on: boolean) => void;
+    /** How the exercise felt; when onfeel is given, the sheet shows Easy / Hard / Failed. */
+    feel?: Feel;
+    onfeel?: (f: Feel | undefined) => void;
   }
-  let { open = $bindable(false), name, unit, value, last, steps, onset, dumbbells, ondumbbells }: Props = $props();
+  let { open = $bindable(false), name, unit, value, last, steps, onset, dumbbells, ondumbbells, feel, onfeel }: Props = $props();
+
+  const FEELS: { id: Feel; label: string; icon: string }[] = [
+    { id: 'easy', label: 'Easy', icon: '🙂' },
+    { id: 'hard', label: 'Hard', icon: '😣' },
+    { id: 'failed', label: 'Failed', icon: '❌' },
+  ];
 
   let draft = $state(0);
   let wasOpen = false;
@@ -71,6 +81,13 @@
         {#each steps as s}<button type="button" class="btn" onclick={() => bump(s)}>+{fmtNum(s)}</button>{/each}
       </div>
     {/if}
+    {#if onfeel}
+      <div class="feels" role="group" aria-label="How did it feel?">
+        {#each FEELS as f}
+          <button type="button" class="btn small {f.id}" aria-pressed={feel === f.id} onclick={() => onfeel(feel === f.id ? undefined : f.id)}><span aria-hidden="true">{f.icon}</span> {f.label}</button>
+        {/each}
+      </div>
+    {/if}
     {#if ondumbbells}
       <label class="dumbbells"><input type="checkbox" checked={!!dumbbells} onchange={(e) => ondumbbells(e.currentTarget.checked)} /> Dumbbells <span class="muted">· weight is per dumbbell</span></label>
     {/if}
@@ -91,6 +108,10 @@
   .big input:focus-visible { border-color: var(--accent); outline: none; }
   .grid { display: grid; grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr)); gap: 0.5rem; margin-bottom: 1rem; }
   .grid .btn { font-size: 1.0625rem; }
+  .feels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.375rem; margin-bottom: 0.75rem; }
+  .feels .btn[aria-pressed='true'].easy { background: var(--ok); color: var(--ok-ink); }
+  .feels .btn[aria-pressed='true'].hard { background: var(--warn); color: var(--warn-ink); }
+  .feels .btn[aria-pressed='true'].failed { background: var(--bad); color: var(--bad-ink); }
   .dumbbells { display: flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; margin: -0.25rem 0 0.75rem; font-weight: 600; cursor: pointer; }
   .dumbbells input { width: 1.25rem; height: 1.25rem; }
   .dumbbells .muted { font-weight: 400; }

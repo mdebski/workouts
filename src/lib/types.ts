@@ -28,13 +28,11 @@ export interface RepsExercise extends ExerciseBase {
 
 export interface TimedExercise extends ExerciseBase {
   type: 'timed';
-  /** Each set is `reps` rounds of work then rest, e.g. 6 × (5 s on, 5 s off). */
-  sets: number;
+  /** Rounds of work then rest, e.g. 3 × (5 s on, 5 s off). There is no off time after the last one. */
   reps: number;
   workSec: number;
   restSec: number;
   trackWeight: boolean;
-  restBetweenSets?: number;
 }
 
 export interface ActivityExercise extends ExerciseBase {

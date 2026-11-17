@@ -99,6 +99,10 @@ input:not([type='checkbox'], [type='radio'], [type='file']), select, textarea {
   background: var(--bg); color: var(--text); font: inherit; font-size: 1rem;
 }
 input:user-invalid, select:user-invalid { border-color: var(--bad-line); }
+/* iOS Safari gives date fields a fixed minimum width and centres the text, so they
+   overflow narrow screens. Let them shrink like any other field. */
+input[type='date'] { -webkit-appearance: none; appearance: none; min-width: 0; max-width: 100%; display: block; }
+input[type='date']::-webkit-date-and-time-value { text-align: left; }
 .error { color: var(--bad); font-size: 0.875rem; margin: 0.25rem 0 0.75rem; }
 .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: 0 0.5rem; }
 

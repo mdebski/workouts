@@ -14,7 +14,7 @@
   type Base = { id: string; name: string; description?: string; restAfter?: number };
   const KINDS: { id: Kind; label: string; hint: string }[] = [
     { id: 'reps', label: 'Reps', hint: 'Sets of reps or holds. Can record a weight, a hold time or a note.' },
-    { id: 'timed', label: 'Timed', hint: 'Rounds of work and rest run by the timer, e.g. 6 × 5s on, 5s off. Times take units: 45, 45s, 2min, 1h.' },
+    { id: 'timed', label: 'Timed', hint: 'Rounds of work and rest run by the timer, e.g. 3 × 5s on, 5s off. Times take units: 45, 45s, 2min, 1h.' },
     { id: 'activity', label: 'Activity', hint: 'Anything else: a warm-up, a run, jumping jacks. You record the minutes or the count when you do it.' },
   ];
 
@@ -28,7 +28,7 @@
 
   function blank(type: Kind, base: Base): Exercise {
     if (type === 'reps') return { ...base, type, ...defaults() };
-    if (type === 'timed') return { ...base, type, sets: 1, reps: 6, workSec: 5, restSec: 5, trackWeight: false };
+    if (type === 'timed') return { ...base, type, reps: 6, workSec: 5, restSec: 5, trackWeight: false };
     return { ...base, type, measure: 'time' };
   }
 
@@ -85,11 +85,9 @@
       draft.weightCount = draft.measure === 'weights' ? Math.min(6, int(draft.weightCount, 2, scheme.length || 2)) : undefined;
       draft.restBetweenSets = inSuperset ? undefined : optional(draft.restBetweenSets);
     } else if (draft.type === 'timed') {
-      draft.sets = inSuperset ? 1 : int(draft.sets, 1, 1);
       draft.reps = int(draft.reps, 1, 1);
       draft.workSec = int(draft.workSec, 1, 5);
       draft.restSec = int(draft.restSec, 0, 0);
-      draft.restBetweenSets = inSuperset ? undefined : optional(draft.restBetweenSets);
     }
     const value = clone($state.snapshot(draft)) as Exercise;
     if (index < 0) list.push(value);
@@ -135,7 +133,7 @@
 
   const restSummary = $derived.by(() => {
     const parts: string[] = [];
-    if (draft.type !== 'activity' && draft.restBetweenSets) parts.push(`${formatDuration(draft.restBetweenSets)} between sets`);
+    if (draft.type === 'reps' && draft.restBetweenSets) parts.push(`${formatDuration(draft.restBetweenSets)} between sets`);
     if (draft.restAfter) parts.push(`${formatDuration(draft.restAfter)} after`);
     return parts.join(' · ') || 'none';
   });
@@ -248,10 +246,7 @@
       {/if}
     {:else if draft.type === 'timed'}
       <div class="cols">
-        {#if !inSuperset}<label class="field"><span>Sets</span><input type="number" inputmode="numeric" min="1" bind:value={draft.sets} /></label>{/if}
-        <label class="field"><span>Rounds per set</span><input type="number" inputmode="numeric" min="1" bind:value={draft.reps} /></label>
-      </div>
-      <div class="cols">
+        <label class="field"><span>Rounds</span><input type="number" inputmode="numeric" min="1" bind:value={draft.reps} /></label>
         <label class="field"><span>On</span><DurationInput bind:value={draft.workSec} min={1} placeholder="5s" /></label>
         <label class="field"><span>Off</span><DurationInput bind:value={draft.restSec} placeholder="5s" /></label>
       </div>
@@ -270,7 +265,7 @@
     {#if !inSuperset}
       <details class="rest" bind:open={restOpen}>
         <summary><Icon name="clock" size={18} /> Rest <span class="muted">{restSummary}</span></summary>
-        {#if draft.type !== 'activity'}
+        {#if draft.type === 'reps'}
           <label class="field"><span>Between sets</span><DurationInput bind:value={draft.restBetweenSets} placeholder="90s, 2min" /></label>
         {/if}
         <label class="field"><span>After the exercise</span><DurationInput bind:value={draft.restAfter} placeholder="2min" /></label>
@@ -295,7 +290,7 @@
       <span>One exercise per line</span>
       <textarea bind:value={severalText} rows="6" autocomplete="off" spellcheck="false" placeholder={'Pull-ups 4x6\nRows\nPlank 3x hold\nDead hang 6x5/5\nWarm-up min\nJumping jacks count'}></textarea>
     </label>
-    <p class="muted hint">A name alone copies the sets and reps of the previous exercise. Add 4x6 for sets and reps, 3x hold for timed holds, 6x5/5 for 6 rounds of 5 s on and 5 s off, or end with min, count or km for an activity you record in minutes, as a count or as a distance.</p>
+    <p class="muted hint">A name alone copies the sets and reps of the previous exercise. Add 4x6 for sets and reps, 3x hold for timed holds, 3x5/5 for 3 rounds of 5 s on and 5 s off, or end with min, count or km for an activity you record in minutes, as a count or as a distance.</p>
     {#if several.length}
       <ul class="preview" aria-label="What will be added">
         {#each several as ex (ex.id)}<li><strong>{ex.name}</strong> <span class="muted">{describe(ex)}</span></li>{/each}

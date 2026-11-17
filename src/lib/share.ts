@@ -34,9 +34,9 @@ function exercise(v: unknown): Exercise {
     };
   }
   if (v.type === 'timed') {
-    // Links made before sets-of-rounds existed carry the rounds in `sets`.
-    const old = typeof v.reps !== 'number';
-    return { ...base, type: 'timed', sets: old ? 1 : int(v.sets, 1, 99, 1), reps: int(old ? v.sets : v.reps, 1, 99, 1), restBetweenSets: rest(v.restBetweenSets), workSec: int(v.workSec, 1, 3600, 30), restSec: int(v.restSec, 0, 3600, 0), trackWeight: v.trackWeight === true };
+    // Older links carry sets of rounds (or, older still, rounds in `sets`): it's all rounds now.
+    const reps = typeof v.reps === 'number' ? (typeof v.sets === 'number' ? v.sets * v.reps : v.reps) : v.sets;
+    return { ...base, type: 'timed', reps: int(reps, 1, 99, 1), workSec: int(v.workSec, 1, 3600, 30), restSec: int(v.restSec, 0, 3600, 0), trackWeight: v.trackWeight === true };
   }
   if (v.type === 'activity') {
     return { ...base, type: 'activity', measure: v.measure === 'count' || v.measure === 'distance' ? v.measure : 'time' };

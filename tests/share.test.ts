@@ -9,7 +9,7 @@ const programme: Programme = {
     { id: 'a', type: 'reps', name: 'Pull-ups', sets: 4, reps: 6, measure: 'weight', restBetweenSets: 90 },
     { id: 's', type: 'superset', rounds: 3, restBetweenRounds: 60, items: [
       { id: 'b', type: 'reps', name: 'Plank', sets: 1, reps: 1, measure: 'time' },
-      { id: 'c', type: 'timed', name: 'Dead hang', sets: 1, reps: 6, workSec: 5, restSec: 5, trackWeight: false },
+      { id: 'c', type: 'timed', name: 'Dead hang', reps: 6, workSec: 5, restSec: 5, trackWeight: false },
     ] },
     { id: 'd', type: 'activity', name: 'Warm-up', measure: 'time' },
   ],

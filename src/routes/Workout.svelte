@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import Icon from '../components/Icon.svelte';
   import { formatDuration } from '../lib/duration.ts';
   import ValueSheet from '../components/ValueSheet.svelte';
   import { db, getWorkout, removeWorkout } from '../lib/state.svelte.ts';
-  import { activityAmount, recordsKg, valuesOf, matchingValues, recordsWeights, fmtValues, copyValues, matchingText, recordsText, fmtNum, describe, flatten, fmtSecs, fmtValue, isComplete, matchingValue, neighbours, previousDone, resultOf, slotInfo, statusOf, unitOf, valueOf, type Unit } from '../lib/core.ts';
+  import { activityAmount, describePlan, recordsKg, valuesOf, matchingValues, recordsWeights, fmtValues, copyValues, matchingText, recordsText, fmtNum, describe, flatten, fmtSecs, fmtValue, isComplete, matchingValue, neighbours, previousDone, resultOf, statusOf, unitOf, valueOf, type Unit } from '../lib/core.ts';
   import { fmtDay, fmtLong, isISODate, today as todayISO } from '../lib/dates.ts';
   import { go } from '../lib/router.svelte.ts';
   import { timer, type Phase } from '../lib/timer.svelte.ts';
@@ -17,7 +17,6 @@
   const found = $derived(getWorkout(id));
   const around = $derived(found ? neighbours(db, found) : {});
   const last = $derived(found ? previousDone(db, found) : undefined);
-  const slot = $derived(found ? slotInfo(db, found) : undefined);
   const status = $derived(found ? statusOf(found, today) : 'planned');
 
   const FEELS: { id: Feel; label: string; icon: string }[] = [
@@ -27,7 +26,6 @@
   ];
   const STEPS: Record<Exclude<Unit, 'kg'>, number[]> = { s: [5, 10, 30], min: [1, 5, 10], km: [0.5, 1, 5], '×': [1, 5, 10] };
 
-  let feelOpen = $state('');
   let notesOpen = $state(false);
   let sheetOpen = $state(false);
   let sheetFor = $state('');
@@ -55,10 +53,9 @@
     sheetOpen = true;
   }
 
-  function setFeel(w: Workout, ex: Exercise, feel: Feel) {
+  function setFeel(w: Workout, ex: Exercise, feel: Feel | undefined) {
     const r = resultOf(w, ex.id);
-    r.feel = r.feel === feel ? undefined : feel;
-    feelOpen = '';
+    r.feel = feel;
     touch(w);
   }
 
@@ -72,7 +69,7 @@
       if (roundDone) rest = (done < ss.rounds ? ss.restBetweenRounds : ss.restAfter) ?? 0;
       label = done < ss.rounds ? `Rest before round ${done + 1} of ${ss.rounds}` : 'Rest after the superset';
     } else if (done < sets) {
-      rest = ex.type === 'activity' ? 0 : (ex.restBetweenSets ?? 0);
+      rest = ex.type === 'reps' ? (ex.restBetweenSets ?? 0) : 0;
       label = `${ex.name} · rest before set ${done + 1} of ${sets}`;
     } else {
       rest = ex.restAfter ?? 0;
@@ -81,7 +78,7 @@
   }
 
   /** Sets and reps, without what's recorded: the value chip beside it already says that. */
-  const plan = (ex: Exercise, inSuperset: boolean) => describe(ex, inSuperset).replace(/ · (weight|time|notes|\d+ weights)(?= · |$)/, '');
+  const plan = describePlan;
 
   /** The − / + beside the done circle: one set more or fewer. A set more starts the rest that follows it. */
   function stepSets(w: Workout, ex: Exercise, sets: number, d: 1 | -1, ss?: Superset) {
@@ -107,28 +104,23 @@
     afterTick(w, ex, sets, ss);
   }
 
-  /** One set of a timed exercise: `reps` rounds of work with the off time in between. */
-  function rounds(ex: Extract<Exercise, { type: 'timed' }>, prefix: string, onDone: () => void): Phase[] {
-    const phases: Phase[] = [];
-    for (let i = 0; i < ex.reps; i++) {
-      const last = i === ex.reps - 1;
-      phases.push({ label: `On · ${prefix} · ${i + 1} of ${ex.reps}`, kind: 'work', seconds: ex.workSec, onEnd: last ? onDone : undefined });
-      if (!last) phases.push({ label: `Off · ${prefix} · ${i + 1} of ${ex.reps}`, kind: 'rest', seconds: ex.restSec });
-    }
-    return phases;
-  }
-
-  /** Timed exercise: runs every remaining set, ticking each one off as it finishes. */
+  /**
+   * Timed exercise: runs the remaining rounds of work and rest, counting each round as
+   * its work ends; the rest after the exercise follows the last one. In a superset it
+   * runs all the rounds once, as one superset round.
+   */
   function runIntervals(w: Workout, ex: Extract<Exercise, { type: 'timed' }>, sets: number, ss?: Superset) {
     touch(w);
-    if (ss) {
-      return timer.start(rounds(ex, ex.name, () => { resultOf(w, ex.id).setsDone++; afterTick(w, ex, sets, ss); }), ex.id);
-    }
+    const r = resultOf(w, ex.id);
+    const from = ss ? 0 : r.setsDone;
     const phases: Phase[] = [];
-    for (let s = resultOf(w, ex.id).setsDone; s < sets; s++) {
-      const prefix = sets > 1 ? `${ex.name} · set ${s + 1}` : ex.name;
-      phases.push(...rounds(ex, prefix, () => (resultOf(w, ex.id).setsDone = s + 1)));
-      phases.push({ label: s < sets - 1 ? `${ex.name} · rest before set ${s + 2} of ${sets}` : `Rest after ${ex.name}`, kind: 'rest', seconds: (s < sets - 1 ? ex.restBetweenSets : ex.restAfter) ?? 0 });
+    for (let i = from; i < ex.reps; i++) {
+      const last = i === ex.reps - 1;
+      const onEnd = ss
+        ? last ? () => { resultOf(w, ex.id).setsDone++; afterTick(w, ex, sets, ss); } : undefined
+        : () => { resultOf(w, ex.id).setsDone = i + 1; if (last) afterTick(w, ex, sets); };
+      phases.push({ label: `On · ${ex.name} · ${i + 1} of ${ex.reps}`, kind: 'work', seconds: ex.workSec, onEnd });
+      if (!last) phases.push({ label: `Off · ${ex.name} · ${i + 1} of ${ex.reps}`, kind: 'rest', seconds: ex.restSec });
     }
     timer.start(phases, ex.id);
   }
@@ -286,9 +278,45 @@
     // A past or missed workout stays on its own day when ticked off later (it's being
     // logged, not done now). One done ahead of schedule moves to today; scheduledDate keeps the slot.
     if (w.date > today) w.date = today;
-    timer.stop();
-    go('/');
   }
+
+  /** How many exercises are done, for the control between previous and next. */
+  const progress = $derived.by(() => {
+    const flat = found ? flatten(found.items) : [];
+    return { total: flat.length, done: flat.filter((f) => (found!.results[f.ex.id]?.setsDone ?? 0) >= f.sets).length };
+  });
+
+  /** The control between previous and next: ticks every exercise, or unticks them all once everything is done. */
+  function markAll(w: Workout) {
+    const flat = flatten(w.items);
+    const all = flat.every((f) => (w.results[f.ex.id]?.setsDone ?? 0) >= f.sets);
+    for (const { ex, sets } of flat) {
+      // An activity counts as done by its recorded amount, so it isn't ticked from here.
+      if (ex.type === 'activity') continue;
+      resultOf(w, ex.id).setsDone = all ? 0 : sets;
+    }
+    touch(w);
+    if (all) timer.stop();
+  }
+
+  // A workout is finished when every exercise is done, and open again if one is unticked.
+  // Only changes made here count: a workout already marked done that isn't complete (say,
+  // logged with a failed exercise) stays done until something here changes it.
+  let wasComplete: boolean | undefined;
+  $effect(() => {
+    const w = found;
+    if (!w) return;
+    const complete = isComplete(w);
+    if (wasComplete === undefined || complete === wasComplete) {
+      wasComplete = complete;
+      return;
+    }
+    wasComplete = complete;
+    untrack(() => {
+      if (complete && w.status !== 'done') finish(w);
+      else if (!complete && w.status === 'done') reopen(w);
+    });
+  });
 
   function reopen(w: Workout) {
     w.status = 'planned';
@@ -314,15 +342,18 @@
   </header>
 
   <p class="when">
-    {fmtLong(w.date)}{#if slot}{' · '}{slot.total ? `${slot.index} of ${slot.total}` : `No. ${slot.index}`}{/if}
-    {#if status === 'done'}<span class="tag ok">Done</span>{/if}
+    {fmtLong(w.date)}
     {#if status === 'missed'}<span class="tag bad">Missed</span>{/if}
   </p>
 
   <nav class="row around" aria-label="Other {w.name} workouts">
-    {#if around.prev}<a class="btn small" href="#/w/{around.prev.id}"><Icon name="left" size={18} /> {fmtDay(around.prev.date)}</a>{/if}
-    <span class="grow"></span>
-    {#if around.next}<a class="btn small" href="#/w/{around.next.id}">{fmtDay(around.next.date)} <Icon name="right" size={18} /></a>{/if}
+    <span class="prev">{#if around.prev}<a class="btn small" href="#/w/{around.prev.id}"><Icon name="left" size={18} /> {fmtDay(around.prev.date)}</a>{/if}</span>
+    <button class="done all" class:some={progress.done > 0 && progress.done < progress.total} class:on={progress.total > 0 && progress.done >= progress.total} aria-pressed={progress.total > 0 && progress.done >= progress.total}
+      aria-label={progress.done >= progress.total ? 'Workout done. Tap to untick every exercise' : `Mark every exercise done (${progress.done} of ${progress.total} done)`} onclick={() => markAll(w)}>
+      <!-- Just the state: tick when done, dotted ring when partly done, empty otherwise. -->
+      {#if progress.total > 0 && progress.done >= progress.total}<Icon name="check" size={20} />{/if}
+    </button>
+    <span class="next">{#if around.next}<a class="btn small" href="#/w/{around.next.id}">{fmtDay(around.next.date)} <Icon name="right" size={18} /></a>{/if}</span>
   </nav>
 
   <div class="row tools">
@@ -335,7 +366,8 @@
   <!-- Every card has this line, empty or not, so cards of the same kind are the same height. -->
   {#snippet vs(ex: Exercise)}
     {@const text = vsLast(w, ex)}
-    <p class="vs" aria-hidden={!text}>{text || '\u00a0'}</p>
+    {@const feel = FEELS.find((f) => f.id === w.results[ex.id]?.feel)}
+    <p class="vs" aria-hidden={!text && !feel}>{#if feel}<span class="feel-dot {feel.id}" title="Felt {feel.label.toLowerCase()}"><span class="sr">Felt {feel.label.toLowerCase()}. </span></span>{/if}{text || '\u00a0'}</p>
   {/snippet}
 
   {#snippet dumbbellMark(ex: Exercise)}
@@ -350,15 +382,15 @@
     <article class="card ex" class:complete={done >= sets} class:running={timer.owner === ex.id}>
       <div class="head">
         {#if ex.type !== 'activity'}
-          <div class="progress" role="group" aria-label="{ex.name}: {done} of {sets} {ss ? 'rounds' : 'sets'} done">
-            {#if sets > 1}<button class="adj" aria-label="One {ss ? 'round' : 'set'} fewer" aria-disabled={done === 0} onclick={() => stepSets(w, ex, sets, -1, ss)}>−</button>{/if}
+          <div class="progress" role="group" aria-label="{ex.name}: {done} of {sets} {ss || ex.type === 'timed' ? 'rounds' : 'sets'} done">
+            {#if sets > 1}<button class="adj" aria-label="One {ss || ex.type === 'timed' ? 'round' : 'set'} fewer" aria-disabled={done === 0} onclick={() => stepSets(w, ex, sets, -1, ss)}>−</button>{/if}
             <button class="done" class:some={done > 0 && done < sets} class:on={done >= sets} aria-pressed={done >= sets} aria-label="{ex.name}: {done >= sets ? 'done, tap to undo' : 'mark all done'}" onclick={() => toggleDone(w, ex, sets, ss)}>
               {#if done >= sets}<Icon name="check" size={16} />{:else if done > 0}<span class="n">{done}</span>{/if}
             </button>
-            {#if sets > 1}<button class="adj" aria-label="One more {ss ? 'round' : 'set'}" aria-disabled={done >= sets} onclick={() => stepSets(w, ex, sets, 1, ss)}>+</button>{/if}
+            {#if sets > 1}<button class="adj" aria-label="One more {ss || ex.type === 'timed' ? 'round' : 'set'}" aria-disabled={done >= sets} onclick={() => stepSets(w, ex, sets, 1, ss)}>+</button>{/if}
           </div>
         {/if}
-        <div class="title">
+        <div class="title" class:inline={ex.type === 'activity'}>
           <h3>{ex.name}</h3>
           <p class="desc">{plan(ex, !!ss)}{ex.description ? ` · ${ex.description}` : ''}</p>
         </div>
@@ -373,9 +405,6 @@
             <button class="icon-btn start" aria-label="Start a {ex.name} timer" onclick={() => runHold(w, ex, sets, ss)}><Icon name="clock" size={18} /></button>
           {/if}
         {/if}
-        <button class="icon-btn feel" aria-expanded={feelOpen === ex.id} aria-label={feel ? `Felt ${feel.label.toLowerCase()}. Change` : 'Set how it felt'} onclick={() => (feelOpen = feelOpen === ex.id ? '' : ex.id)}>
-          {#if feel}<span aria-hidden="true">{feel.icon}</span>{:else}<Icon name="face" />{/if}
-        </button>
         {#if recordsKg(ex) && !recordsWeights(ex)}
           <button class="adj" aria-label="{ex.name}: take off {fmtNum(minStep)} kg" aria-disabled={!(valueOf(w, ex) ?? matchingValue(last, ex))} onclick={() => bumpWeight(w, ex, -1)}>−</button>
         {/if}
@@ -387,13 +416,6 @@
         {#if !recordsWeights(ex) && ex.type !== 'activity'}{@render vs(ex)}{/if}
         </div>
       </div>
-      {#if feelOpen === ex.id}
-        <div class="feels" role="group" aria-label="How did {ex.name} feel?">
-          {#each FEELS as f}
-            <button class="btn small {f.id}" aria-pressed={r?.feel === f.id} onclick={() => setFeel(w, ex, f.id)}><span aria-hidden="true">{f.icon}</span> {f.label}</button>
-          {/each}
-        </div>
-      {/if}
       {#if recordsWeights(ex)}
         <div class="row weights" role="group" aria-label="{ex.name}: weights">
           {#each valuesOf(w, ex) as v, i}
@@ -412,11 +434,11 @@
         {@const v = valueOf(w, ex) ?? 0}
         {@const amt = activityAmount(ex)}
         <div class="amount" role="group" aria-label="{ex.name}, {amt.unit}">
-          <button class="step" aria-label="{amt.stepLabel} less" aria-disabled={!v} onclick={() => nudge(w, ex, -1)}>−</button>
+          <button class="step" aria-label="{amt.stepLabel} less" aria-disabled={!v} onclick={() => nudge(w, ex, -1)}><Icon name="minus" size={24} /></button>
           <button class="value" aria-label="{fmtValue(v, unit)}. Type a value" onclick={() => openValue(ex)}>
-            <span class="num">{fmtNum(v)}</span><span class="unit">{amt.unit}</span>
+            <span class="reading"><span class="num">{fmtNum(v)}</span><span class="unit">{amt.unit}</span></span>
           </button>
-          <button class="step" aria-label="{amt.stepLabel} more" onclick={() => nudge(w, ex, 1)}>+</button>
+          <button class="step" aria-label="{amt.stepLabel} more" onclick={() => nudge(w, ex, 1)}><Icon name="plus" size={24} /></button>
         </div>
         {@render vs(ex)}
       {/if}
@@ -430,7 +452,7 @@
         {#each item.items as ex (ex.id)}{@render exercise(ex, item.rounds, item)}{/each}
       </section>
     {:else}
-      {@render exercise(item, item.type === 'activity' ? 1 : item.sets)}
+      {@render exercise(item, item.type === 'activity' ? 1 : item.type === 'timed' ? item.reps : item.sets)}
     {/if}
     {#if item.restAfter}
       <button class="rest-row" aria-label="Start {formatDuration(item.restAfter)} rest" onclick={() => timer.start([{ label: 'Rest', kind: 'rest', seconds: item.restAfter ?? 0 }])}>
@@ -446,14 +468,9 @@
     <!-- svelte-ignore a11y_autofocus -->
     <label class="field notes"><span>Notes</span><textarea bind:value={w.notes} rows="2" placeholder="Slept badly, shoulder felt tight" autofocus={notesOpen && !w.notes}></textarea></label>
   {:else}
-    <button class="btn small add-note" onclick={() => (notesOpen = true)}><Icon name="edit" size={16} /> Add a note</button>
+    <button class="add-note" onclick={() => (notesOpen = true)}>Notes +</button>
   {/if}
 
-  {#if w.status === 'done'}
-    <button class="btn wide" onclick={() => reopen(w)}>Mark as not done</button>
-  {:else}
-    <button class="btn wide" class:primary={isComplete(w)} onclick={() => finish(w)}>Finish workout</button>
-  {/if}
 
   <details class="more">
     <summary>Move or delete</summary>
@@ -487,6 +504,8 @@
       name={sheetSlot >= 0 ? `${sheetEx.name} · weight ${sheetSlot + 1}` : sheetEx.name}
       dumbbells={w.results[sheetEx.id]?.dumbbells}
       ondumbbells={recordsKg(sheetEx) ? (on) => setDumbbells(w, sheetEx, on) : undefined}
+      feel={w.results[sheetEx.id]?.feel}
+      onfeel={(f) => setFeel(w, sheetEx, f)}
       {unit}
       value={sheetSlot >= 0 ? (valuesOf(w, sheetEx)[sheetSlot] ?? undefined) : (valueOf(w, sheetEx) ?? (sheetEx.type === 'activity' ? 0 : undefined))}
       last={sheetSlot >= 0 ? (matchingValues(last, sheetEx)?.[sheetSlot] ?? undefined) : matchingValue(last, sheetEx)}
@@ -500,9 +519,11 @@
   h3 { font-size: 1rem; font-weight: 600; }
   .when { color: var(--muted); font-size: 0.875rem; margin: 0 0.25rem 0.75rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
   .tag { padding: 0.125rem 0.625rem; border-radius: 99px; font-weight: 600; font-size: 0.8125rem; }
-  .tag.ok { background: var(--ok); color: var(--ok-ink); }
   .tag.bad { background: var(--bad); color: var(--bad-ink); }
-  .around { margin-bottom: 0.75rem; }
+  /* Previous, the whole-workout done control in the middle, next. */
+  .around { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; margin-bottom: 0.75rem; }
+  .around .next { justify-self: end; }
+  .done.all { width: 2.5rem; height: 2.5rem; margin: 0 0.5rem; }
   .tools { margin-bottom: 0.25rem; }
   .tools .btn { padding-inline: 0.5rem; }
   .status { min-height: 1.25rem; margin: 0 0.25rem 0.25rem; }
@@ -515,9 +536,13 @@
   .controls :global(.icon-btn) { width: 2rem; }
   .controls .chip { padding: 0 0.625rem; }
   /* The comparison line takes the buttons' width rather than widening the column. */
-  .side .vs { margin: -0.25rem 0.25rem 0 0; width: 0; min-width: calc(100% - 0.25rem); }
+  .side .vs { margin: 0.25rem 0.25rem 0 0; width: 0; min-width: calc(100% - 0.25rem); }
   .title { flex: 1; min-width: 0; padding-left: 0.25rem; }
   .title h3 { margin: 0; font-size: 0.9375rem; line-height: 1.25; overflow-wrap: break-word; }
+  /* Activities: the short description follows the name on the same line. */
+  .title.inline { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
+  .title.inline h3 { flex: none; max-width: 60%; }
+  .title.inline .desc { flex: 1; min-width: 0; margin: 0; }
   .desc { margin: 0.0625rem 0 0; font-size: 0.8125rem; color: var(--muted); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* One small round button per exercise: tap to mark the whole exercise done. */
   .progress { flex: none; display: flex; align-items: center; }
@@ -534,7 +559,11 @@
   .start { color: var(--accent); }
   .ex.complete { border-color: var(--ok-line); }
   .ex.running { border-color: var(--accent); }
-  .feel { font-size: 1.25rem; color: var(--muted); }
+  /* How it felt, as a small dot after the name (set in the value sheet). */
+  .feel-dot { display: inline-block; width: 0.5rem; height: 0.5rem; margin-right: 0.375rem; border-radius: 50%; vertical-align: 0.1em; }
+  .feel-dot.easy { background: var(--ok); }
+  .feel-dot.hard { background: var(--warn); }
+  .feel-dot.failed { background: var(--bad); }
   .chip { min-height: 2.25rem; padding: 0 0.875rem; border: none; border-radius: 99px; background: var(--raise); color: var(--text); font: inherit; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; }
   /* Under the weight, on the right: how it compares with last time. */
   .vs { margin: -0.25rem 0.25rem 0 0; text-align: right; font-size: 0.8125rem; line-height: 1.3; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -542,20 +571,19 @@
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .chip.unset { background: transparent; box-shadow: inset 0 0 0 2px var(--line); color: var(--muted); }
 
-  .feels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.375rem; padding: 0.375rem; background: var(--bg); border-radius: 12px; }
-  .feels .btn[aria-pressed='true'].easy { background: var(--ok); color: var(--ok-ink); }
-  .feels .btn[aria-pressed='true'].hard { background: var(--warn); color: var(--warn-ink); }
-  .feels .btn[aria-pressed='true'].failed { background: var(--bad); color: var(--bad-ink); }
 
 
   .weights { flex-wrap: wrap; gap: 0.375rem; }
   .record { field-sizing: content; min-height: 2.75rem; resize: none; }
   .amount { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem; }
-  .amount .step { flex: none; width: 3.25rem; height: 3.25rem; border: none; border-radius: 50%; background: var(--raise); color: var(--text); font: inherit; font-size: 1.75rem; font-weight: 600; line-height: 1; cursor: pointer; touch-action: manipulation; }
+  /* Icons rather than − / + characters: font glyphs sit off-centre in a round button. */
+  .amount .step { flex: none; display: grid; place-items: center; width: 3.25rem; height: 3.25rem; padding: 0; border: none; border-radius: 50%; background: var(--raise); color: var(--text); cursor: pointer; touch-action: manipulation; }
   .amount .step:hover { background: var(--line); }
   .amount .step[aria-disabled='true'] { color: var(--line); }
-  .amount .value { flex: 1; min-width: 0; display: flex; align-items: baseline; justify-content: center; gap: 0.375rem; min-height: 3.25rem; border: none; border-radius: 12px; background: none; color: var(--text); font: inherit; cursor: pointer; }
+  .amount .value { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; min-height: 3.25rem; border: none; border-radius: 12px; background: none; color: var(--text); font: inherit; cursor: pointer; }
   .amount .value:hover { background: var(--raise); }
+  /* The number and its unit share a baseline; together they're centred against the buttons. */
+  .amount .reading { display: inline-flex; align-items: baseline; gap: 0.375rem; }
   .amount .num { font-size: 2rem; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1; }
   .amount .unit { color: var(--muted); font-size: 0.875rem; }
   .superset { border: 2px dashed #7f77dd; border-radius: 22px; padding: 0.5rem 0.5rem 0; margin-bottom: 0.5rem; }
@@ -566,7 +594,8 @@
   .rest-row .grow { flex: 1; }
 
   .notes { margin-top: 1rem; }
-  .add-note { margin: 0.75rem 0; }
+  .add-note { display: block; margin: 0.5rem 0; padding: 0.5rem 0.25rem; min-height: 2.75rem; border: none; background: none; color: var(--muted); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer; }
+  .add-note:hover { color: var(--text); }
   textarea { field-sizing: content; min-height: 4rem; resize: vertical; }
   .more { margin-top: 1.5rem; color: var(--muted); }
   .more summary { min-height: 2.75rem; display: flex; align-items: center; cursor: pointer; padding: 0 0.25rem; }

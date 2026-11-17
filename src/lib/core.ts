@@ -30,14 +30,27 @@ export function migrate(raw: unknown): Data {
   for (const p of r.programmes) {
     if (!p || typeof p.id !== 'string' || !p.schedule || !isISODate(p.schedule.start) || !Array.isArray(p.items)) throw new Error('Backup contains a malformed programme');
   }
-  // Timed exercises used to be `sets` × (work, rest). They are now sets of `reps` such rounds.
-  const upgrade = (items: Item[]) => {
+  // Timed exercises are just rounds of work and rest. Older ones had sets of rounds
+  // (and before that, `sets` meant rounds): fold every set into the round count, and
+  // turn done sets into done rounds, except in supersets, where done counts superset rounds.
+  type OldTimed = { type: 'timed'; id: string; sets?: number; reps?: number; restBetweenSets?: number };
+  const upgrade = (items: Item[], results?: Data['workouts'][number]['results'], inSuperset = false) => {
     for (const it of items) {
-      if (it.type === 'superset') upgrade(it.items);
-      else if (it.type === 'timed' && typeof it.reps !== 'number') Object.assign(it, { reps: it.sets, sets: 1 });
+      if (it.type === 'superset') upgrade(it.items, results, true);
+      else if (it.type === 'timed') {
+        const t = it as unknown as OldTimed;
+        if (typeof t.sets !== 'number') continue;
+        const perSet = typeof t.reps === 'number' ? t.reps : 1;
+        t.reps = Math.max(1, t.sets * perSet);
+        const r = results?.[t.id];
+        if (r && !inSuperset) r.setsDone = Math.min(t.reps, r.setsDone * perSet);
+        delete t.sets;
+        delete t.restBetweenSets;
+      }
     }
   };
-  for (const holder of [...r.programmes, ...r.workouts]) upgrade(holder.items);
+  for (const p of r.programmes) upgrade(p.items);
+  for (const w of r.workouts) upgrade(w.items, w.results);
   // Activities used to carry a preset amount. It is now only ever recorded, so keep
   // it as the recorded value where the activity was done, then drop it.
   const untarget = (items: Item[], results?: Data['workouts'][number]['results']) => {
@@ -70,7 +83,7 @@ export function flatten(items: Item[]): FlatExercise[] {
   return items.flatMap((it): FlatExercise[] =>
     it.type === 'superset'
       ? it.items.map((ex) => ({ ex, sets: it.rounds, supersetId: it.id }))
-      : [{ ex: it, sets: it.type === 'activity' ? 1 : it.sets }],
+      : [{ ex: it, sets: it.type === 'activity' ? 1 : it.type === 'timed' ? it.reps : it.sets }],
   );
 }
 
@@ -124,8 +137,7 @@ export function describe(ex: Exercise, inSuperset = false): string {
     return sets + m + (inSuperset ? '' : rest(ex.restBetweenSets));
   }
   if (ex.type === 'timed') {
-    const sets = inSuperset || ex.sets === 1 ? '' : `${ex.sets} sets of `;
-    return `${sets}${ex.reps} × ${formatDuration(ex.workSec)} on, ${formatDuration(ex.restSec)} off${ex.trackWeight ? ' · weight' : ''}${inSuperset ? '' : rest(ex.restBetweenSets)}`;
+    return `${ex.reps} × ${formatDuration(ex.workSec)} / ${formatDuration(ex.restSec)}${ex.trackWeight ? ' · weight' : ''}`;
   }
   return ex.measure === 'time' ? 'Activity · record minutes' : ex.measure === 'distance' ? 'Activity · record distance' : 'Activity · record a count';
 }
@@ -332,6 +344,10 @@ const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, 
  * Finished exercises whose name contains every word of the query, grouped by
  * exercise name. Groups and entries are newest first.
  */
+/** Sets and reps alone, e.g. "3 × 5", leaving out what gets recorded (shown elsewhere as a unit or value). */
+export const describePlan = (ex: Exercise, inSuperset = false) =>
+  describe(ex, inSuperset).replace(/ · (weight|time|notes|\d+ weights)(?= · |$)/, '');
+
 /**
  * What was recorded for an exercise, in a few words: "42.5 kg", "10 / 12.5 kg",
  * "1min 10s", "5.4 km", "30 times", or a note. Empty when nothing was recorded.

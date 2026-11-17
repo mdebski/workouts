@@ -40,14 +40,14 @@
     if (r?.text) parts.push(r.text);
     if (ex.type !== 'activity') {
       const done = r?.setsDone ?? 0;
-      if (done < sets) parts.push(`${done} of ${sets} ${ex.type === 'reps' || ex.type === 'timed' ? 'sets' : 'rounds'}`);
+      if (done < sets) parts.push(`${done} of ${sets} ${ex.type === 'reps' ? 'sets' : 'rounds'}`);
     }
     return parts.join(' · ');
   }
 
   function plan({ ex, sets }: SearchEntry): string {
     if (ex.type === 'reps') return ex.measure === 'time' ? `${sets} × hold` : `${sets} × ${ex.reps}`;
-    if (ex.type === 'timed') return `${sets > 1 ? `${sets} × ` : ''}${ex.reps} × ${formatDuration(ex.workSec)}/${formatDuration(ex.restSec)}`;
+    if (ex.type === 'timed') return `${ex.reps} × ${formatDuration(ex.workSec)} / ${formatDuration(ex.restSec)}`;
     return '';
   }
 </script>

@@ -9,8 +9,8 @@ test('shorthand lines', () => {
   assert.deepEqual(p('Pull-ups 4x6'), { name: 'Pull-ups', type: 'reps', sets: 4, reps: 6, measure: 'weight', restBetweenSets: 90 });
   assert.deepEqual(p('Push ups 3 × 12'), { name: 'Push ups', type: 'reps', sets: 3, reps: 12, measure: 'weight', restBetweenSets: 90 });
   assert.deepEqual(p('Plank 3x hold'), { name: 'Plank', type: 'reps', sets: 3, reps: 1, measure: 'time' });
-  assert.deepEqual(p('Dead hang 6x5/5'), { name: 'Dead hang', type: 'timed', sets: 1, reps: 6, workSec: 5, restSec: 5, trackWeight: false });
-  assert.deepEqual(p('Dead hang 3x6x7s/3s'), { name: 'Dead hang', type: 'timed', sets: 3, reps: 6, workSec: 7, restSec: 3, trackWeight: false });
+  assert.deepEqual(p('Dead hang 6x5/5'), { name: 'Dead hang', type: 'timed', reps: 6, workSec: 5, restSec: 5, trackWeight: false });
+  assert.deepEqual(p('Dead hang 3x6x7s/3s'), { name: 'Dead hang', type: 'timed', reps: 18, workSec: 7, restSec: 3, trackWeight: false });
   assert.deepEqual(p('Warm-up min'), { name: 'Warm-up', type: 'activity', measure: 'time' });
   assert.deepEqual(p('Stretch: 7,5min'), { name: 'Stretch', type: 'activity', measure: 'time' });
   assert.deepEqual(p('Jumping jacks count'), { name: 'Jumping jacks', type: 'activity', measure: 'count' });

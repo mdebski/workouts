@@ -12,7 +12,7 @@ const items = (): Item[] => [
     { id: 'rows', type: 'reps', name: 'Rows', sets: 1, reps: 10, measure: 'weight' },
     { id: 'plank', type: 'reps', name: 'Plank', sets: 1, reps: 1, measure: 'time' },
   ] },
-  { id: 'hang', type: 'timed', name: 'Dead hang', sets: 3, reps: 6, workSec: 5, restSec: 5, trackWeight: false },
+  { id: 'hang', type: 'timed', name: 'Dead hang', reps: 6, workSec: 5, restSec: 5, trackWeight: false },
   { id: 'warm', type: 'activity', name: 'Warm-up', measure: 'time' },
 ];
 
@@ -99,17 +99,20 @@ test('a programme can end after a number of weeks', () => {
   const d = withProgramme(programme({ ...mwf, end: { kind: 'weeks', n: 2 } }), '2026-11-02');
   assert.deepEqual(mine(d).map((w) => w.date), ['2026-11-02', '2026-11-04', '2026-11-06', '2026-11-09', '2026-11-11', '2026-11-13']);
   assert.strictEqual(describeEnd({ ...mwf, end: { kind: 'weeks', n: 2 } }), 'for 2 weeks');
-  assert.strictEqual(describe(items()[2] as Exercise), '3 sets of 6 × 5s on, 5s off');
+  assert.strictEqual(describe(items()[2] as Exercise), '6 × 5s / 5s');
 });
 
-test('old timed exercises are upgraded to sets of rounds', () => {
-  const old = { version: 1, programmes: [], workouts: [{ id: 'w', date: '2026-11-02', name: 'x', emoji: 'x', status: 'planned', results: {}, items: [
-    { id: 't', type: 'timed', name: 'Hang', sets: 6, workSec: 5, restSec: 5, trackWeight: false },
-    { id: 's', type: 'superset', rounds: 2, items: [{ id: 'u', type: 'timed', name: 'Hang', sets: 4, workSec: 5, restSec: 5, trackWeight: false }] },
-  ] }] };
+test('old timed exercises become plain rounds', () => {
+  const old = { version: 1, programmes: [], workouts: [{ id: 'w', date: '2026-11-02', name: 'x', emoji: 'x', status: 'done', items: [
+    { id: 'a', type: 'timed', name: 'Hang', sets: 6, workSec: 5, restSec: 5, trackWeight: false },
+    { id: 'b', type: 'timed', name: 'Hang', sets: 3, reps: 2, workSec: 5, restSec: 5, trackWeight: false, restBetweenSets: 60 },
+    { id: 's', type: 'superset', rounds: 2, items: [{ id: 'c', type: 'timed', name: 'Hang', sets: 1, reps: 4, workSec: 5, restSec: 5, trackWeight: false }] },
+  ], results: { a: { setsDone: 6 }, b: { setsDone: 2 }, c: { setsDone: 2 } } }] };
   const d = migrate(old);
-  const [t, s] = d.workouts[0].items as unknown as [{ sets: number; reps: number }, { items: { sets: number; reps: number }[] }];
-  assert.deepEqual([t.sets, t.reps, s.items[0].sets, s.items[0].reps], [1, 6, 1, 4]);
+  const [a, b, s] = d.workouts[0].items as unknown as [Record<string, unknown>, Record<string, unknown>, { items: Record<string, unknown>[] }];
+  assert.deepEqual([a.reps, b.reps, s.items[0].reps], [6, 6, 4]);
+  assert.ok(!('sets' in a) && !('sets' in b) && !('restBetweenSets' in b));
+  assert.deepEqual(['a', 'b', 'c'].map((k) => d.workouts[0].results[k].setsDone), [6, 4, 2], 'done sets become done rounds, except in supersets');
 });
 
 test('old activity targets become recorded values', () => {
@@ -258,7 +261,7 @@ test('recorded values in a few words', () => {
 });
 
 test('flatten uses rounds for supersets', () => {
-  assert.deepEqual(flatten(items()).map((f) => [f.ex.id, f.sets]), [['pull', 4], ['rows', 3], ['plank', 3], ['hang', 3], ['warm', 1]]);
+  assert.deepEqual(flatten(items()).map((f) => [f.ex.id, f.sets]), [['pull', 4], ['rows', 3], ['plank', 3], ['hang', 6], ['warm', 1]]);
 });
 
 test('migrate validates input', () => {
