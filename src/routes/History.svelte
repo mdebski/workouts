@@ -11,7 +11,10 @@
   const programme = $derived(getProgramme(id));
   const mine = $derived(db.workouts.filter((w) => w.programmeId === id));
   const done = $derived(mine.filter((w) => w.status === 'done').sort((a, b) => a.date.localeCompare(b.date)));
-  const missed = $derived(mine.filter((w) => statusOf(w, today) === 'missed').length);
+  const missedList = $derived(mine.filter((w) => statusOf(w, today) === 'missed'));
+  const missed = $derived(missedList.length);
+  // Done and missed together, oldest first, so gaps in the programme show where they happened.
+  const columns = $derived([...done, ...missedList].sort((a, b) => a.date.localeCompare(b.date)));
 
   // One row per exercise: the programme's current ones first, then any that only exist in history.
   const rows = $derived.by(() => {
@@ -32,15 +35,17 @@
 
 <p class="muted lead">{done.length} done · {missed} missed</p>
 
-{#if done.length}
+{#if columns.length}
   <!-- A scrollable region has to be focusable so it can be scrolled from the keyboard. -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div class="scroller" bind:this={scroller} tabindex="0" role="region" aria-label="Completed workouts">
+  <div class="scroller" bind:this={scroller} tabindex="0" role="region" aria-label="Done and missed workouts">
     <table>
       <thead>
         <tr>
           <th scope="col"><span class="sr">Exercise</span></th>
-          {#each done as w (w.id)}<th scope="col"><a href="#/w/{w.id}">{fmtShort(w.date)}</a></th>{/each}
+          {#each columns as w (w.id)}
+            <th scope="col" class:missed-col={w.status !== 'done'}><a href="#/w/{w.id}">{fmtShort(w.date)}</a>{#if w.status !== 'done'}<span class="sr"> (missed)</span>{/if}</th>
+          {/each}
         </tr>
       </thead>
       <tbody>
@@ -48,7 +53,10 @@
           {@const unit = unitOf(ex)}
           <tr>
             <th scope="row">{ex.name}{#if unit && unit !== '×'}{' '}<span class="muted">{unit}</span>{/if}</th>
-            {#each done as w (w.id)}
+            {#each columns as w (w.id)}
+              {#if w.status !== 'done'}
+                <td class="missed-cell"><span class="sr">Missed</span></td>
+              {:else}
               {@const present = flatten(w.items).find((f) => f.ex.id === ex.id)}
               {@const r = w.results[ex.id]}
               <td class={r?.feel ?? ''}>
@@ -68,13 +76,14 @@
                 {/if}
                 {#if r?.feel}<span class="sr">, felt {r.feel}</span>{/if}
               </td>
+              {/if}
             {/each}
           </tr>
         {/each}
       </tbody>
     </table>
   </div>
-  <p class="legend muted"><span class="key easy">Easy</span><span class="key hard">Hard</span><span class="key failed">Failed</span></p>
+  <p class="legend muted"><span class="key missed-key">Missed</span><span class="key easy">Easy</span><span class="key hard">Hard</span><span class="key failed">Failed</span></p>
 {:else}
   <div class="card"><p><strong>No finished workouts yet</strong></p><p class="muted">Each one you finish becomes a column here.</p></div>
 {/if}
@@ -89,6 +98,9 @@
   /* Row headers stay put while the workouts scroll sideways. */
   tbody th, thead th:first-child { position: sticky; left: 0; background: var(--bg); text-align: left; max-width: 9rem; white-space: normal; z-index: 2; }
   td { background: var(--card); min-width: 3.75rem; }
+  /* Missed workouts: struck-through date and a red slash through each cell, as in the agenda. */
+  .missed-col a { color: var(--bad); text-decoration: line-through; }
+  td.missed-cell { background: linear-gradient(to top right, transparent calc(50% - 1px), var(--bad-line) calc(50% - 1px), var(--bad-line) calc(50% + 1px), transparent calc(50% + 1px)), var(--card); opacity: 0.6; }
   .text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; max-width: 9rem; white-space: normal; text-align: left; }
   td.easy, .key.easy { background: var(--ok); color: var(--ok-ink); }
   td.hard, .key.hard { background: var(--warn); color: var(--warn-ink); }
@@ -97,6 +109,7 @@
   /* Secondary text in a coloured cell takes the cell's own dark text colour, so it stays readable. */
   td.easy .muted, td.hard .muted, td.failed .muted { color: inherit; }
   td :global(.muted) { font-size: inherit; }
+  .key.missed-key { background: transparent; color: var(--bad); box-shadow: inset 0 0 0 2px var(--bad-line); }
   .legend { display: flex; gap: 0.375rem; margin-top: 0.75rem; }
   .key { padding: 0.125rem 0.625rem; border-radius: 99px; font-weight: 600; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

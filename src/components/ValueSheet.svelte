@@ -1,6 +1,7 @@
 <script lang="ts">
   import Sheet from './Sheet.svelte';
   import { fmtNum, fmtValue, type Unit } from '../lib/core.ts';
+  import { parseDuration } from '../lib/duration.ts';
 
   interface Props {
     open: boolean;
@@ -10,8 +11,11 @@
     last: number | undefined;
     steps: number[];
     onset: (v: number) => void;
+    /** When given, the sheet shows a dumbbell checkbox (weights only). */
+    dumbbells?: boolean;
+    ondumbbells?: (on: boolean) => void;
   }
-  let { open = $bindable(false), name, unit, value, last, steps, onset }: Props = $props();
+  let { open = $bindable(false), name, unit, value, last, steps, onset, dumbbells, ondumbbells }: Props = $props();
 
   let draft = $state(0);
   let wasOpen = false;
@@ -19,6 +23,16 @@
     if (open && !wasOpen) draft = value ?? last ?? 0;
     wasOpen = open;
   });
+
+  /** Times accept units ("1min", "90s", "1:30"); the result is in this sheet's unit. */
+  function readNumber(text: string): number | undefined {
+    if (unit === 's') return parseDuration(text, 's');
+    if (unit === 'min') {
+      const s = parseDuration(text, 'min');
+      return s === undefined ? undefined : Math.round((s / 60) * 100) / 100;
+    }
+    return Number(text.replace(',', '.'));
+  }
 
   const bump = (d: number) => (draft = Math.max(0, Math.round((draft + d) * 100) / 100));
   const unitLabel = $derived(unit === '×' ? 'times' : unit);
@@ -36,8 +50,9 @@
     {#snippet number()}
       <label class="big">
         <span class="sr">Value in {unitLabel}</span>
-        <input type="text" inputmode="decimal" autocomplete="off" value={fmtNum(draft)}
-          onchange={(e) => { const n = Number(e.currentTarget.value.replace(',', '.')); draft = Number.isFinite(n) && n >= 0 ? n : draft; e.currentTarget.value = fmtNum(draft); }} />
+        <!-- Times need letters for units (5min, 1h), so they get the full keyboard. -->
+        <input type="text" inputmode={unit === 's' || unit === 'min' ? 'text' : 'decimal'} autocomplete="off" value={fmtNum(draft)}
+          onchange={(e) => { const n = readNumber(e.currentTarget.value); draft = n !== undefined && Number.isFinite(n) && n >= 0 ? n : draft; e.currentTarget.value = fmtNum(draft); }} />
         {#if !counter}<span aria-hidden="true">{unitLabel}</span>{/if}
       </label>
     {/snippet}
@@ -56,6 +71,9 @@
         {#each steps as s}<button type="button" class="btn" onclick={() => bump(s)}>+{fmtNum(s)}</button>{/each}
       </div>
     {/if}
+    {#if ondumbbells}
+      <label class="dumbbells"><input type="checkbox" checked={!!dumbbells} onchange={(e) => ondumbbells(e.currentTarget.checked)} /> Dumbbells <span class="muted">· weight is per dumbbell</span></label>
+    {/if}
     <div class="row">
       {#if last !== undefined}<button type="button" class="btn grow" onclick={() => (draft = last)}>Same as last</button>{/if}
       <!-- Focus lands here, not on the number field, so the keyboard stays down on phones. -->
@@ -73,6 +91,9 @@
   .big input:focus-visible { border-color: var(--accent); outline: none; }
   .grid { display: grid; grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr)); gap: 0.5rem; margin-bottom: 1rem; }
   .grid .btn { font-size: 1.0625rem; }
+  .dumbbells { display: flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; margin: -0.25rem 0 0.75rem; font-weight: 600; cursor: pointer; }
+  .dumbbells input { width: 1.25rem; height: 1.25rem; }
+  .dumbbells .muted { font-weight: 400; }
   .counter { display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin: 0.75rem 0 1.25rem; }
   .counter .big { margin: 0; }
   .counter .big input { width: 7rem; font-size: 3rem; }

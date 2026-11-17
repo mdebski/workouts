@@ -99,7 +99,7 @@ test('a programme can end after a number of weeks', () => {
   const d = withProgramme(programme({ ...mwf, end: { kind: 'weeks', n: 2 } }), '2026-11-02');
   assert.deepEqual(mine(d).map((w) => w.date), ['2026-11-02', '2026-11-04', '2026-11-06', '2026-11-09', '2026-11-11', '2026-11-13']);
   assert.strictEqual(describeEnd({ ...mwf, end: { kind: 'weeks', n: 2 } }), 'for 2 weeks');
-  assert.strictEqual(describe(items()[2] as Exercise), '3 sets of 6 × 5 s on, 5 s off');
+  assert.strictEqual(describe(items()[2] as Exercise), '3 sets of 6 × 5s on, 5s off');
 });
 
 test('old timed exercises are upgraded to sets of rounds', () => {

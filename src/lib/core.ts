@@ -1,5 +1,6 @@
 import { addDays, isISODate, maxISO } from './dates.ts';
 import { lastDay, occurrences } from './schedule.ts';
+import { formatDuration } from './duration.ts';
 import type { Data, Exercise, ISODate, Item, Programme, Result, Workout } from './types.ts';
 
 /** How far ahead open-ended programmes are generated. */
@@ -108,7 +109,7 @@ export function fmtSecs(total: number): string {
 }
 
 export function describe(ex: Exercise, inSuperset = false): string {
-  const rest = (n?: number) => (n ? ` · rest ${n} s` : '');
+  const rest = (n?: number) => (n ? ` · rest ${formatDuration(n)}` : '');
   if (ex.type === 'reps') {
     const what = ex.measure === 'time' ? (ex.reps === 1 ? 'hold' : `${ex.reps} holds`) : `${ex.reps} reps`;
     const sets = ex.repScheme?.length ? `${ex.repScheme.join(' / ')} reps` : inSuperset ? what : `${ex.sets} × ${ex.measure === 'time' && ex.reps === 1 ? 'hold' : ex.reps}`;
@@ -117,7 +118,7 @@ export function describe(ex: Exercise, inSuperset = false): string {
   }
   if (ex.type === 'timed') {
     const sets = inSuperset || ex.sets === 1 ? '' : `${ex.sets} sets of `;
-    return `${sets}${ex.reps} × ${ex.workSec} s on, ${ex.restSec} s off${ex.trackWeight ? ' · weight' : ''}${inSuperset ? '' : rest(ex.restBetweenSets)}`;
+    return `${sets}${ex.reps} × ${formatDuration(ex.workSec)} on, ${formatDuration(ex.restSec)} off${ex.trackWeight ? ' · weight' : ''}${inSuperset ? '' : rest(ex.restBetweenSets)}`;
   }
   return ex.measure === 'time' ? 'Activity · record minutes' : 'Activity · record a count';
 }

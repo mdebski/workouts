@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Icon from '../components/Icon.svelte';
+  import MainTabs from '../components/MainTabs.svelte';
   import Sheet from '../components/Sheet.svelte';
   import { db } from '../lib/state.svelte.ts';
   import { durationMin, slotInfo, statusOf } from '../lib/core.ts';
@@ -30,18 +31,16 @@
     else parts.push('One-off');
     const mins = durationMin(w);
     if (mins) parts.push(`${mins} min`);
-    if (status === 'today') parts.push('tap to start');
     return parts.join(' · ');
   }
 
   onMount(() => document.getElementById('today')?.scrollIntoView({ block: 'start' }));
 </script>
 
-<header class="bar">
-  <h1 tabindex="-1">Workouts</h1>
+<header class="bar main">
+  <MainTabs active="workouts" />
   <button class="icon-btn add" aria-label="Add a workout or programme" aria-haspopup="dialog" onclick={() => (addOpen = true)}><Icon name="plus" /></button>
   <a class="icon-btn" href="#/search" aria-label="Search exercises"><Icon name="search" /></a>
-  <a class="icon-btn" href="#/programmes" aria-label="Programmes"><Icon name="list" /></a>
   <a class="icon-btn" href="#/settings" aria-label="Settings"><Icon name="settings" /></a>
 </header>
 
@@ -69,8 +68,8 @@
               <span class="name">{w.name}</span>
               <span class="muted">{sub(w)}</span>
             </span>
-            {#if status === 'done'}<span class="mark"><Icon name="check" size={20} /><span class="sr">Done</span></span>{/if}
-            {#if status === 'today'}<span class="mark"><Icon name="play" size={18} /></span>{/if}
+            {#if status === 'done'}<span class="mark"><Icon name="check" size={14} /><span class="sr">Done</span></span>{/if}
+            {#if status === 'today'}<span class="mark"><Icon name="play" size={12} /></span>{/if}
           </a>
         {:else}
           <p class="empty">Nothing planned</p>
@@ -109,18 +108,23 @@
   .date b { display: block; font-size: 1.125rem; font-weight: 650; color: var(--text); border-radius: 10px; }
   .is-today .date { color: var(--accent); }
   .is-today .date b { background: var(--accent); color: var(--accent-ink); }
-  .list { flex: 1; min-width: 0; }
-  .empty { color: var(--muted); font-size: 0.8125rem; padding: 0.75rem 0.25rem; }
+  /* Two workouts side by side; a day with one leaves the other half empty. */
+  .list { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.375rem; align-content: start; }
+  .empty { grid-column: 1 / -1; color: var(--muted); font-size: 0.8125rem; padding: 0.625rem 0.25rem; }
 
   .w {
-    display: flex; align-items: center; gap: 0.625rem;
-    padding: 0.5rem 0.75rem; margin-bottom: 0.375rem;
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; gap: 0.5rem;
+    min-height: 3.25rem; padding: 0.375rem 0.5rem;
     border: 2px solid transparent; border-radius: var(--radius);
     background: var(--card);
   }
   .text { flex: 1; min-width: 0; display: grid; }
-  .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mark { display: grid; }
+  .name { font-weight: 600; font-size: 0.875rem; line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
+  .text .muted { font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .w .emoji { width: 1.75rem; height: 1.75rem; font-size: 1rem; border-radius: 9px; }
+  .mark { position: absolute; top: 0.25rem; right: 0.25rem; }
+  .done, .today { padding-right: 1.125rem; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 
   .done { border-color: var(--ok-line); }

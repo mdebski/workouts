@@ -4,6 +4,7 @@
   import { db } from '../lib/state.svelte.ts';
   import { exerciseNames, fmtNum, searchExercises, unitOf, type SearchEntry } from '../lib/core.ts';
   import { fmtDayAuto } from '../lib/dates.ts';
+  import { formatDuration } from '../lib/duration.ts';
   import { router } from '../lib/router.svelte.ts';
 
   const FEEL = { easy: 'Easy', hard: 'Hard', failed: 'Failed' } as const;
@@ -40,7 +41,7 @@
 
   function plan({ ex, sets }: SearchEntry): string {
     if (ex.type === 'reps') return ex.measure === 'time' ? `${sets} × hold` : `${sets} × ${ex.reps}`;
-    if (ex.type === 'timed') return `${sets > 1 ? `${sets} × ` : ''}${ex.reps} × ${ex.workSec}/${ex.restSec} s`;
+    if (ex.type === 'timed') return `${sets > 1 ? `${sets} × ` : ''}${ex.reps} × ${formatDuration(ex.workSec)}/${formatDuration(ex.restSec)}`;
     return '';
   }
 </script>

@@ -2,7 +2,9 @@
   import { tick } from 'svelte';
   import Icon from './Icon.svelte';
   import Sheet from './Sheet.svelte';
+  import DurationInput from './DurationInput.svelte';
   import { clone, describe, flatten, uid } from '../lib/core.ts';
+  import { formatDuration } from '../lib/duration.ts';
   import { parseQuick, type QuickDefaults } from '../lib/quick.ts';
   import type { Exercise, Item, Superset } from '../lib/types.ts';
 
@@ -12,7 +14,7 @@
   type Base = { id: string; name: string; description?: string; restAfter?: number };
   const KINDS: { id: Kind; label: string; hint: string }[] = [
     { id: 'reps', label: 'Reps', hint: 'Sets of reps or holds. Can record a weight, a hold time or a note.' },
-    { id: 'timed', label: 'Timed', hint: 'Rounds of work and rest run by the timer, e.g. 6 × 5 s on, 5 s off.' },
+    { id: 'timed', label: 'Timed', hint: 'Rounds of work and rest run by the timer, e.g. 6 × 5s on, 5s off. Times take units: 45, 45s, 2min, 1h.' },
     { id: 'activity', label: 'Activity', hint: 'Anything else: a warm-up, a run, jumping jacks. You record the minutes or the count when you do it.' },
   ];
 
@@ -94,6 +96,9 @@
     else list[index] = value;
     if (!another) return (open = false);
     add(list, inSuperset);
+    // Start the next one as a copy of the one just added: same type, sets, reps and rests.
+    // Only the name and notes are specific to an exercise, so those start empty.
+    draft = { ...clone(value), id: uid(), name: '', description: undefined };
     await tick();
     nameInput?.focus();
   }
@@ -130,8 +135,8 @@
 
   const restSummary = $derived.by(() => {
     const parts: string[] = [];
-    if (draft.type !== 'activity' && draft.restBetweenSets) parts.push(`${draft.restBetweenSets} s between sets`);
-    if (draft.restAfter) parts.push(`${draft.restAfter} s after`);
+    if (draft.type !== 'activity' && draft.restBetweenSets) parts.push(`${formatDuration(draft.restBetweenSets)} between sets`);
+    if (draft.restAfter) parts.push(`${formatDuration(draft.restAfter)} after`);
     return parts.join(' · ') || 'none';
   });
 
@@ -152,7 +157,7 @@
   <div class="item">
     <button type="button" class="main" onclick={() => edit(arr, i, superset)}>
       <strong>{ex.name}</strong>
-      <span class="muted">{describe(ex, superset)}{ex.restAfter ? ` · then rest ${ex.restAfter} s` : ''}</span>
+      <span class="muted">{describe(ex, superset)}{ex.restAfter ? ` · then rest ${formatDuration(ex.restAfter)}` : ''}</span>
     </button>
     <button type="button" class="icon-btn" aria-label="Move {ex.name} up" aria-disabled={i === 0} onclick={() => move(arr, i, -1)}><Icon name="up" /></button>
     <button type="button" class="icon-btn" aria-label="Move {ex.name} down" aria-disabled={i === arr.length - 1} onclick={() => move(arr, i, 1)}><Icon name="down" /></button>
@@ -165,8 +170,8 @@
       <legend><Icon name="repeat" size={16} /> Superset</legend>
       <div class="cols">
         <label class="field"><span>Rounds</span><input type="number" inputmode="numeric" min="1" bind:value={item.rounds} onchange={() => cleanSuperset(item)} /></label>
-        <label class="field"><span>Rest between rounds, s</span><input type="number" inputmode="numeric" min="0" bind:value={item.restBetweenRounds} onchange={() => cleanSuperset(item)} /></label>
-        <label class="field"><span>Rest after, s</span><input type="number" inputmode="numeric" min="0" bind:value={item.restAfter} onchange={() => cleanSuperset(item)} /></label>
+        <label class="field"><span>Rest between rounds</span><DurationInput bind:value={item.restBetweenRounds} onchange={() => cleanSuperset(item)} /></label>
+        <label class="field"><span>Rest after</span><DurationInput bind:value={item.restAfter} onchange={() => cleanSuperset(item)} /></label>
       </div>
       {#each item.items as ex, j (ex.id)}{@render row(item.items, j, ex, true)}{/each}
       <div class="row">
@@ -247,8 +252,8 @@
         <label class="field"><span>Rounds per set</span><input type="number" inputmode="numeric" min="1" bind:value={draft.reps} /></label>
       </div>
       <div class="cols">
-        <label class="field"><span>On, s</span><input type="number" inputmode="numeric" min="1" bind:value={draft.workSec} /></label>
-        <label class="field"><span>Off, s</span><input type="number" inputmode="numeric" min="0" bind:value={draft.restSec} /></label>
+        <label class="field"><span>On</span><DurationInput bind:value={draft.workSec} min={1} placeholder="5s" /></label>
+        <label class="field"><span>Off</span><DurationInput bind:value={draft.restSec} placeholder="5s" /></label>
       </div>
       <label class="check"><input type="checkbox" bind:checked={draft.trackWeight} /> Record a weight</label>
     {:else}
@@ -265,9 +270,9 @@
       <details class="rest" bind:open={restOpen}>
         <summary><Icon name="clock" size={18} /> Rest <span class="muted">{restSummary}</span></summary>
         {#if draft.type !== 'activity'}
-          <label class="field"><span>Between sets, s</span><input type="number" inputmode="numeric" min="0" bind:value={draft.restBetweenSets} /></label>
+          <label class="field"><span>Between sets</span><DurationInput bind:value={draft.restBetweenSets} placeholder="90s, 2min" /></label>
         {/if}
-        <label class="field"><span>After the exercise, s</span><input type="number" inputmode="numeric" min="0" bind:value={draft.restAfter} /></label>
+        <label class="field"><span>After the exercise</span><DurationInput bind:value={draft.restAfter} placeholder="2min" /></label>
       </details>
     {/if}
     <label class="field"><span>Notes (optional)</span><input type="text" bind:value={draft.description} autocomplete="off" /></label>

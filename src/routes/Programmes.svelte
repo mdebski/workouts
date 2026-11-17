@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '../components/Icon.svelte';
+  import MainTabs from '../components/MainTabs.svelte';
   import { db } from '../lib/state.svelte.ts';
   import { statusOf } from '../lib/core.ts';
   import { describeEnd, describeRepeat } from '../lib/schedule.ts';
@@ -10,8 +11,13 @@
   import type { Programme } from '../lib/types.ts';
 
   const today = todayISO();
-  const active = $derived(db.programmes.filter((p) => !p.archived));
-  const archived = $derived(db.programmes.filter((p) => p.archived));
+  /** A programme's end: the date of its last workout (or its start, if it has none yet). */
+  const endOf = (p: Programme) =>
+    db.workouts.reduce((last, w) => (w.programmeId === p.id && (w.scheduledDate ?? w.date) > last ? (w.scheduledDate ?? w.date) : last), p.schedule.start);
+  // Newest first: the programme that ends latest comes on top.
+  const byEnd = (list: Programme[]) => list.map((p) => [p, endOf(p)] as const).sort((a, b) => b[1].localeCompare(a[1]) || a[0].name.localeCompare(b[0].name)).map(([p]) => p);
+  const active = $derived(byEnd(db.programmes.filter((p) => !p.archived)));
+  const archived = $derived(byEnd(db.programmes.filter((p) => p.archived)));
 
   function summary(p: Programme): string {
     return `${describeRepeat(p.schedule)} · from ${fmtShort(p.schedule.start)} · ${describeEnd(p.schedule)}`;
@@ -75,10 +81,11 @@
   }
 </script>
 
-<header class="bar">
-  <a class="icon-btn" href="#/" aria-label="Back to agenda"><Icon name="back" /></a>
-  <h1 tabindex="-1">Programmes</h1>
+<header class="bar main">
+  <MainTabs active="programmes" />
   <a class="icon-btn add" href="#/p/new" aria-label="New programme"><Icon name="plus" /></a>
+  <a class="icon-btn" href="#/search" aria-label="Search exercises"><Icon name="search" /></a>
+  <a class="icon-btn" href="#/settings" aria-label="Settings"><Icon name="settings" /></a>
 </header>
 
 {#snippet card(p: Programme)}

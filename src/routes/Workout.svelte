@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Icon from '../components/Icon.svelte';
+  import { formatDuration } from '../lib/duration.ts';
   import ValueSheet from '../components/ValueSheet.svelte';
   import { db, getWorkout, removeWorkout } from '../lib/state.svelte.ts';
   import { recordsKg, valuesOf, matchingValues, recordsWeights, fmtValues, copyValues, matchingText, recordsText, fmtNum, describe, durationMin, flatten, fmtSecs, fmtValue, isComplete, matchingValue, neighbours, previousDone, resultOf, slotInfo, statusOf, unitOf, valueOf, type Unit } from '../lib/core.ts';
@@ -150,6 +151,40 @@
     touch(w);
   }
 
+  const minStep = $derived(Math.min(...db.settings.weightSteps));
+
+  /** The quick + next to a weight: one smallest step up, starting from last time's weight if none is set yet. */
+  function bumpWeight(w: Workout, ex: Exercise) {
+    const base = valueOf(w, ex) ?? matchingValue(last, ex) ?? 0;
+    record(w, ex, Math.round((base + minStep) * 100) / 100);
+  }
+
+  function setDumbbells(w: Workout, ex: Exercise, on: boolean) {
+    const r = resultOf(w, ex.id);
+    if (on) r.dumbbells = true;
+    else delete r.dumbbells;
+    touch(w);
+  }
+
+  /** Whether anything was entered for this workout: weights, times, counts, notes or the dumbbell flag. */
+  const hasRecorded = (w: Workout) =>
+    Object.values(w.results).some((r) => r.value !== undefined || r.values?.some((v) => v !== null) || !!r.text || r.dumbbells);
+
+  function clearRecorded(w: Workout) {
+    if (!confirm("Clear every weight, time, count and note recorded in this workout? Ticked sets and how it felt stay. This can't be undone.")) return;
+    for (const { ex } of flatten(w.items)) {
+      const r = w.results[ex.id];
+      if (!r) continue;
+      delete r.value;
+      delete r.values;
+      delete r.text;
+      delete r.dumbbells;
+      // An activity is done only when an amount is recorded.
+      if (ex.type === 'activity') r.setsDone = 0;
+    }
+    copied = 'Recorded values cleared.';
+  }
+
   function copyLast(w: Workout) {
     if (!last) return;
     const n = copyValues(w, last);
@@ -207,12 +242,8 @@
   {/if}
   <p class="muted status" role="status">{copied}</p>
 
-  {#snippet dumbbells(ex: Exercise)}
-    {@const on = !!w.results[ex.id]?.dumbbells}
-    <button class="icon-btn dumbbell" class:on aria-pressed={on} aria-label="{ex.name}: done with dumbbells (weight per dumbbell)" title="Dumbbells: weight per dumbbell"
-      onclick={() => { const r = resultOf(w, ex.id); if (on) delete r.dumbbells; else r.dumbbells = true; touch(w); }}>
-      <Icon name="dumbbell" size={20} />
-    </button>
+  {#snippet dumbbellMark(ex: Exercise)}
+    {#if w.results[ex.id]?.dumbbells}<span class="db-mark" title="Dumbbells: weight per dumbbell"><Icon name="dumbbell" size={14} /><span class="sr">, dumbbells</span></span>{/if}
   {/snippet}
 
   {#snippet exercise(ex: Exercise, sets: number, ss?: Superset)}
@@ -226,8 +257,10 @@
         <button class="icon-btn feel" aria-expanded={feelOpen === ex.id} aria-label={feel ? `Felt ${feel.label.toLowerCase()}. Change` : 'Set how it felt'} onclick={() => (feelOpen = feelOpen === ex.id ? '' : ex.id)}>
           {#if feel}<span aria-hidden="true">{feel.icon}</span>{:else}<Icon name="face" />{/if}
         </button>
-        {#if recordsKg(ex) && !recordsWeights(ex)}{@render dumbbells(ex)}{/if}
-        {#if unit && ex.type !== 'activity' && !recordsWeights(ex)}<button class="chip" class:unset={valueOf(w, ex) === undefined} aria-label="{ex.name}: {fmtValue(valueOf(w, ex), unit)}. Change" onclick={() => openValue(ex)}>{fmtValue(valueOf(w, ex), unit)}</button>{/if}
+        {#if unit && ex.type !== 'activity' && !recordsWeights(ex)}<button class="chip" class:unset={valueOf(w, ex) === undefined} aria-label="{ex.name}: {fmtValue(valueOf(w, ex), unit)}. Change" onclick={() => openValue(ex)}>{fmtValue(valueOf(w, ex), unit)}{#if recordsKg(ex)}{@render dumbbellMark(ex)}{/if}</button>{/if}
+        {#if recordsKg(ex) && !recordsWeights(ex)}
+          <button class="icon-btn bump" aria-label="{ex.name}: add {fmtNum(minStep)} kg" title="+{fmtNum(minStep)} kg" onclick={() => bumpWeight(w, ex)}><Icon name="plus" size={20} /></button>
+        {/if}
       </div>
       {#if feelOpen === ex.id}
         <div class="feels" role="group" aria-label="How did {ex.name} feel?">
@@ -242,9 +275,7 @@
           {#each valuesOf(w, ex) as v, i}
             <button class="chip" class:unset={v === null} aria-label="{ex.name}, weight {i + 1}: {v === null ? 'not set' : `${fmtNum(v)} kg`}. Change" onclick={() => openValue(ex, i)}>{v === null ? '—' : fmtNum(v)}</button>
           {/each}
-          <span class="muted">kg</span>
-          <span class="grow"></span>
-          {@render dumbbells(ex)}
+          <span class="muted">kg</span>{@render dumbbellMark(ex)}
         </div>
       {/if}
       {#if recordsText(ex)}
@@ -284,15 +315,15 @@
   {#each w.items as item (item.id)}
     {#if item.type === 'superset'}
       <section class="superset" aria-label="Superset, {item.rounds} rounds">
-        <p class="ss-head"><Icon name="repeat" size={16} /> Superset · {item.rounds} rounds{item.restBetweenRounds ? ` · rest ${item.restBetweenRounds} s` : ''}</p>
+        <p class="ss-head"><Icon name="repeat" size={16} /> Superset · {item.rounds} rounds{item.restBetweenRounds ? ` · rest ${formatDuration(item.restBetweenRounds)}` : ''}</p>
         {#each item.items as ex (ex.id)}{@render exercise(ex, item.rounds, item)}{/each}
       </section>
     {:else}
       {@render exercise(item, item.type === 'activity' ? 1 : item.sets)}
     {/if}
     {#if item.restAfter}
-      <button class="rest-row" aria-label="Start {item.restAfter} second rest" onclick={() => timer.start([{ label: 'Rest', kind: 'rest', seconds: item.restAfter ?? 0 }])}>
-        <Icon name="clock" size={16} /> Rest {item.restAfter} s <span class="grow"></span><Icon name="play" size={14} />
+      <button class="rest-row" aria-label="Start {formatDuration(item.restAfter)} rest" onclick={() => timer.start([{ label: 'Rest', kind: 'rest', seconds: item.restAfter ?? 0 }])}>
+        <Icon name="clock" size={16} /> Rest {formatDuration(item.restAfter)} <span class="grow"></span><Icon name="play" size={14} />
       </button>
     {/if}
   {:else}
@@ -308,11 +339,12 @@
   {/if}
 
   <details class="more">
-    <summary>Move or delete</summary>
+    <summary>Move, clear or delete</summary>
     <label class="field"><span>{w.status === 'done' ? 'Done on' : 'Planned for'}</span>
       <input type="date" value={w.date} onchange={(e) => { if (isISODate(e.currentTarget.value)) w.date = e.currentTarget.value; }} />
     </label>
     {#if w.scheduledDate && w.scheduledDate !== w.date}<p class="muted">Originally scheduled for {fmtDay(w.scheduledDate)}.</p>{/if}
+    {#if hasRecorded(w)}<button class="btn wide clear" onclick={() => clearRecorded(w)}>Clear recorded values</button>{/if}
     <button class="btn danger wide" onclick={() => remove(w)}>Delete workout</button>
   </details>
 
@@ -333,7 +365,9 @@
     {@const unit = unitOf(sheetEx)!}
     <ValueSheet
       bind:open={sheetOpen}
-      name={(sheetSlot >= 0 ? `${sheetEx.name} · weight ${sheetSlot + 1}` : sheetEx.name) + (w.results[sheetEx.id]?.dumbbells ? ' · per dumbbell' : '')}
+      name={sheetSlot >= 0 ? `${sheetEx.name} · weight ${sheetSlot + 1}` : sheetEx.name}
+      dumbbells={w.results[sheetEx.id]?.dumbbells}
+      ondumbbells={recordsKg(sheetEx) ? (on) => setDumbbells(w, sheetEx, on) : undefined}
       {unit}
       value={sheetSlot >= 0 ? (valuesOf(w, sheetEx)[sheetSlot] ?? undefined) : (valueOf(w, sheetEx) ?? (sheetEx.type === 'activity' ? 0 : undefined))}
       last={sheetSlot >= 0 ? (matchingValues(last, sheetEx)?.[sheetSlot] ?? undefined) : matchingValue(last, sheetEx)}
@@ -358,8 +392,11 @@
   .ex.running { border-color: var(--accent); }
   .feel { font-size: 1.25rem; color: var(--muted); }
   .chip { min-height: 2.25rem; padding: 0 0.875rem; border: none; border-radius: 99px; background: var(--raise); color: var(--text); font: inherit; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; }
-  .dumbbell { color: var(--muted); }
-  .dumbbell.on { background: var(--accent); color: var(--accent-ink); }
+  .bump { width: 2.25rem; height: 2.25rem; margin-left: -0.25rem; background: var(--raise); }
+  .bump:hover { background: var(--line); }
+  .db-mark { display: inline-flex; vertical-align: -2px; margin-left: 0.25rem; color: var(--accent); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .clear { margin-bottom: 0.5rem; }
   .chip.unset { background: transparent; box-shadow: inset 0 0 0 2px var(--line); color: var(--muted); }
 
   .feels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.375rem; padding: 0.375rem; background: var(--bg); border-radius: 12px; }
