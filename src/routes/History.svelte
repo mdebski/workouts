@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import Icon from '../components/Icon.svelte';
   import { db, getProgramme } from '../lib/state.svelte.ts';
   import { fmtValues, recordsWeights, flatten, fmtNum, statusOf, unitOf, valueOf } from '../lib/core.ts';
@@ -13,8 +12,8 @@
   const done = $derived(mine.filter((w) => w.status === 'done').sort((a, b) => a.date.localeCompare(b.date)));
   const missedList = $derived(mine.filter((w) => statusOf(w, today) === 'missed'));
   const missed = $derived(missedList.length);
-  // Done and missed together, oldest first, so gaps in the programme show where they happened.
-  const columns = $derived([...done, ...missedList].sort((a, b) => a.date.localeCompare(b.date)));
+  // Done and missed together, newest first, so gaps in the programme show where they happened.
+  const columns = $derived([...done, ...missedList].sort((a, b) => b.date.localeCompare(a.date) || (b.completedAt ?? '').localeCompare(a.completedAt ?? '')));
 
   // One row per exercise: the programme's current ones first, then any that only exist in history.
   const rows = $derived.by(() => {
@@ -25,7 +24,6 @@
   });
 
   let scroller = $state<HTMLDivElement>();
-  onMount(() => scroller?.scrollTo({ left: scroller.scrollWidth }));
 </script>
 
 <header class="bar">
@@ -96,7 +94,8 @@
   thead th { position: sticky; top: 0; z-index: 1; background: var(--bg); color: var(--muted); }
   thead th a { text-decoration: underline; text-underline-offset: 3px; }
   /* Row headers stay put while the workouts scroll sideways. */
-  tbody th, thead th:first-child { position: sticky; left: 0; background: var(--bg); text-align: left; max-width: 9rem; white-space: normal; z-index: 2; }
+  /* The exercise names are plain labels: no rounded cell, just the page colour so values scroll under them. */
+  tbody th, thead th:first-child { position: sticky; left: 0; background: var(--bg); border-radius: 0; text-align: left; max-width: 9rem; white-space: normal; z-index: 2; }
   td { background: var(--card); min-width: 3.75rem; }
   /* Missed workouts: struck-through date and a red slash through each cell, as in the agenda. */
   .missed-col a { color: var(--bad); text-decoration: line-through; }

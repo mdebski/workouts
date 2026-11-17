@@ -35,7 +35,7 @@ body {
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
-main { max-width: 34rem; margin: 0 auto; padding: 0 0.875rem 2rem; }
+main { max-width: 34rem; margin: 0 auto; padding: 0 0.875rem 2rem; min-height: 100dvh; }
 
 h1, h2, h3, p { margin: 0; }
 h1 { font-size: 1.375rem; font-weight: 650; }

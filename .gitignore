@@ -1,3 +1,6 @@
 node_modules
 dist
 dev-dist
+import/
+/*.txt
+/*.json5

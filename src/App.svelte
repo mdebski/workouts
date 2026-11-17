@@ -1,6 +1,8 @@
 <script lang="ts">
-  import { router } from './lib/router.svelte.ts';
-  import { ui } from './lib/state.svelte.ts';
+  import { go, router } from './lib/router.svelte.ts';
+  import { db, getWorkout, ui } from './lib/state.svelte.ts';
+  import { neighbours } from './lib/core.ts';
+  import { swipe, type SwipeHandlers } from './lib/swipe.ts';
   import Agenda from './routes/Agenda.svelte';
   import Workout from './routes/Workout.svelte';
   import Programmes from './routes/Programmes.svelte';
@@ -11,11 +13,23 @@
   import Search from './routes/Search.svelte';
 
   const route = $derived(router.route);
+
+  // Swipe left / right: between the two main tabs, and between workouts of the same name.
+  const gestures = $derived.by((): SwipeHandlers => {
+    if (route.name === 'agenda') return { left: () => go('/programmes') };
+    if (route.name === 'programmes') return { right: () => go('/') };
+    if (route.name === 'workout') {
+      const w = getWorkout(route.id!);
+      const { prev, next } = w ? neighbours(db, w) : {};
+      return { left: next && (() => go(`/w/${next.id}`)), right: prev && (() => go(`/w/${prev.id}`)) };
+    }
+    return {};
+  });
 </script>
 
 {#if ui.saveError}<p class="save-error" role="alert">{ui.saveError}</p>{/if}
 
-<main>
+<main use:swipe={gestures}>
   {#if route.name === 'workout'}
     {#key route.id}<Workout id={route.id!} />{/key}
   {:else if route.name === 'edit-workout'}

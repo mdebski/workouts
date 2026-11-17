@@ -2,6 +2,10 @@ import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// Shown in settings, so you can tell which version is running. Passed as an env
+// variable rather than `define`, which upset the Vite 8 dev client.
+process.env.VITE_BUILD_TIME = new Date().toISOString();
+
 export default defineConfig({
   base: './',
   plugins: [

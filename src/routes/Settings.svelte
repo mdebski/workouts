@@ -72,6 +72,37 @@
     pending = undefined;
   }
 
+  const built = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(import.meta.env.VITE_BUILD_TIME));
+  let updating = $state(false);
+  let updateMessage = $state('');
+
+  /** Fetches the latest version, waits for it to install, then reloads into it. Data is untouched. */
+  async function updateApp() {
+    if (updating) return;
+    updating = true;
+    updateMessage = '';
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      if (reg) {
+        await reg.update();
+        const next = reg.installing ?? reg.waiting;
+        if (next) {
+          // Wait for the new version to take over (or give up after 15 s and reload anyway).
+          await new Promise<void>((resolve) => {
+            const done = () => next.state === 'activated' || next.state === 'redundant';
+            if (done()) return resolve();
+            next.addEventListener('statechange', () => done() && resolve());
+            setTimeout(resolve, 15_000);
+          });
+        }
+      }
+      location.reload();
+    } catch {
+      updating = false;
+      updateMessage = "Couldn't check for a new version. Check your connection and try again.";
+    }
+  }
+
   function saveSteps() {
     const parsed = steps.split(/[,;\s]+/).map((s) => Number(s.replace(',', '.'))).filter((n) => Number.isFinite(n) && n > 0);
     if (parsed.length) db.settings.weightSteps = parsed.slice(0, 4);
@@ -97,6 +128,13 @@
     {plural(db.programmes.length, 'programme')} · {plural(db.workouts.length, 'workout')}
     {#if persisted !== undefined} · {persisted ? 'storage is protected' : 'storage may be cleared by the browser if space runs low'}{/if}
   </p>
+</div>
+
+<h2>App version</h2>
+<div class="card">
+  <p class="muted">Built {built}.</p>
+  <button class="btn wide update" onclick={updateApp} aria-disabled={updating}>{updating ? 'Updating…' : 'Update and reload'}</button>
+  {#if updateMessage}<p class="muted" role="status">{updateMessage}</p>{/if}
 </div>
 
 <h2>Weights</h2>
@@ -127,5 +165,6 @@
   .what { margin: 0.75rem 0 1rem; padding-left: 1.25rem; display: grid; gap: 0.25rem; }
   .replace { margin-top: 0.5rem; }
   .actions { margin: 0.75rem 0; }
+  .update { margin-top: 0.75rem; }
   .card > p + p { margin-top: 0.5rem; }
 </style>
