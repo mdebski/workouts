@@ -2,8 +2,8 @@
 // Needs `sharp` (a dev dependency):
 //   docker compose run --rm app npm run icons
 import sharp from 'sharp';
-import { mkdirSync } from 'node:fs';
-import { SPLASH_SIZES } from './splash-sizes.mjs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { SPLASH_SIZES, splashLinks } from './splash-sizes.mjs';
 
 const src = new URL('../public/icon.svg', import.meta.url).pathname;
 const out = (name) => new URL(`../public/${name}`, import.meta.url).pathname;
@@ -28,3 +28,9 @@ for (const { width, height } of SPLASH_SIZES) {
     .toFile(out(`splash/${width}x${height}.png`));
   console.log(`splash/${width}x${height}.png`);
 }
+
+// Keep the <link> tags in index.html in step with the images.
+const html = new URL('../index.html', import.meta.url).pathname;
+const before = readFileSync(html, 'utf8');
+const after = before.replace(/(?:[ \t]*<link rel="apple-touch-startup-image"[^\n]*\n)+/, splashLinks() + '\n');
+if (after !== before) { writeFileSync(html, after); console.log('index.html: launch screen links updated'); }
