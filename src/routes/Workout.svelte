@@ -11,7 +11,12 @@
   import { keepAwake } from '../lib/wakelock.ts';
   import type { Exercise, Feel, Item, Rest, Superset, Workout } from '../lib/types.ts';
 
-  let { id }: { id: string } = $props();
+  /** back: where the back arrow goes, when the workout was opened from search. */
+  let { id, back }: { id: string; back?: string } = $props();
+  const backHref = $derived(back?.startsWith('#/search') ? back : '#/');
+  const backLabel = $derived(backHref === '#/' ? 'Back to agenda' : 'Back to search');
+  /** Added to links to other workouts, so the back arrow still leads to the same place. */
+  const keepBack = $derived(backHref === '#/' ? '' : `?back=${encodeURIComponent(backHref)}`);
 
   const today = todayISO();
   const found = $derived(getWorkout(id));
@@ -177,9 +182,10 @@
   /**
    * This workout's weight next to last time's, e.g. "Same as last" or "1.25 kg more than last".
    * With several weights, the heaviest is compared. Empty until both are known.
+   * Only between workouts of the same programme: one-off workouts aren't compared.
    */
   function vsLast(w: Workout, ex: Exercise): string {
-    if (!last) return '';
+    if (!last || !w.programmeId || last.programmeId !== w.programmeId) return '';
     if (recordsText(ex)) {
       const now = textOf(w.results[ex.id])?.trim();
       const before = matchingText(last, ex)?.trim();
@@ -349,7 +355,7 @@
 {:else}
   {@const w = found}
   <header class="bar">
-    <a class="icon-btn" href="#/" aria-label="Back to agenda"><Icon name="back" /></a>
+    <a class="icon-btn" href={backHref} aria-label={backLabel}><Icon name="back" /></a>
     <h1 tabindex="-1"><span aria-hidden="true">{w.emoji}</span> {w.name}</h1>
     {#if w.programmeId && getProgramme(w.programmeId)}
       <button class="icon-btn" aria-label="Reset this workout to the programme" title="Reset to the programme" onclick={() => resetToProgramme(w)}><Icon name="reset" /></button>
@@ -363,13 +369,13 @@
   </p>
 
   <nav class="row around" aria-label="Other {w.name} workouts">
-    <span class="prev">{#if around.prev}<a class="btn small" href="#/w/{around.prev.id}"><Icon name="left" size={18} /> {fmtDay(around.prev.date)}</a>{/if}</span>
+    <span class="prev">{#if around.prev}<a class="btn small" href="#/w/{around.prev.id}{keepBack}"><Icon name="left" size={18} /> {fmtDay(around.prev.date)}</a>{/if}</span>
     <button class="done all" class:some={progress.done > 0 && progress.done < progress.total} class:on={progress.total > 0 && progress.done >= progress.total} aria-pressed={progress.total > 0 && progress.done >= progress.total}
       aria-label={progress.done >= progress.total ? 'Workout done. Tap to untick every exercise' : `Mark every exercise done (${progress.done} of ${progress.total} done)`} onclick={() => markAll(w)}>
       <!-- Just the state: tick when done, dotted ring when partly done, empty otherwise. -->
       {#if progress.total > 0 && progress.done >= progress.total}<Icon name="check" size={20} />{/if}
     </button>
-    <span class="next">{#if around.next}<a class="btn small" href="#/w/{around.next.id}">{fmtDay(around.next.date)} <Icon name="right" size={18} /></a>{/if}</span>
+    <span class="next">{#if around.next}<a class="btn small" href="#/w/{around.next.id}{keepBack}">{fmtDay(around.next.date)} <Icon name="right" size={18} /></a>{/if}</span>
   </nav>
 
   <div class="row tools">

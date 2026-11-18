@@ -21,7 +21,9 @@
     if (route.name === 'workout') {
       const w = getWorkout(route.id!);
       const { prev, next } = w ? neighbours(db, w) : {};
-      return { left: next && (() => go(`/w/${next.id}`)), right: prev && (() => go(`/w/${prev.id}`)) };
+      // Keeps where the back arrow leads (e.g. search) while moving between workouts.
+      const qs = route.query.size ? `?${route.query}` : '';
+      return { left: next && (() => go(`/w/${next.id}${qs}`)), right: prev && (() => go(`/w/${prev.id}${qs}`)) };
     }
     return {};
   });
@@ -31,7 +33,7 @@
 
 <main use:swipe={gestures}>
   {#if route.name === 'workout'}
-    {#key route.id}<Workout id={route.id!} />{/key}
+    {#key route.id}<Workout id={route.id!} back={route.query.get('back') ?? undefined} />{/key}
   {:else if route.name === 'edit-workout'}
     {#key route.id}<Editor kind="workout" id={route.id!} date={route.query.get('date') ?? undefined} />{/key}
   {:else if route.name === 'edit-programme'}

@@ -18,6 +18,10 @@
     x: 'M6 6l12 12M18 6L6 18',
     face: 'M12 3a9 9 0 100 18 9 9 0 000-18zM9 10h.01M15 10h.01M9 15c1.5 1 4.5 1 6 0',
     share: 'M12 15V4M8 8l4-4 4 4M5 13v6h14v-6',
+    // Flip a table: a table with a header row and column, and a two-way curved arrow round its top-left corner.
+    transpose: 'M9 9h12v12H9zM9 13h12M13 9v12M13 3.5A9.5 9.5 0 003.5 13M11 1.5l2 2-2 2M1.5 11l2 2 2-2',
+    // Squeeze a list together: a line in the middle with arrows pressing in from above and below.
+    collapse: 'M4 12h16M12 3v5M9 5l3 3 3-3M12 21v-5M9 19l3-3 3 3',
     link: 'M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1',
     // A list with a curved arrow on its left: from the first item round to the last.
     'first-to-end': 'M13 6h8M13 12h8M13 18h8M9 6C3 6 3 14 9 18M8.2 14.1L9 18l-3.9.8',

@@ -3,7 +3,7 @@
   import { db, getProgramme } from '../lib/state.svelte.ts';
   import { numbersOf, textOf, describePlan, isLogged, fmtValues, recordsWeights, flatten, fmtNum, statusOf, unitOf, valueOf } from '../lib/core.ts';
   import { fmtShort, today as todayISO } from '../lib/dates.ts';
-  import type { Exercise, Item } from '../lib/types.ts';
+  import type { Exercise, Item, Workout } from '../lib/types.ts';
 
   let { id }: { id: string } = $props();
   const today = todayISO();
@@ -15,9 +15,10 @@
   // Done and missed together, newest first, so gaps in the programme show where they happened.
   const columns = $derived([...done, ...missedList].sort((a, b) => b.date.localeCompare(a.date) || (b.completedAt ?? '').localeCompare(a.completedAt ?? '')));
 
+  type Row = { ex: Exercise; inSuperset: boolean };
   // One row per exercise: the programme's current ones first, then any that only exist in history.
   const rows = $derived.by(() => {
-    const seen = new Map<string, { ex: Exercise; inSuperset: boolean }>();
+    const seen = new Map<string, Row>();
     const add = (items: Item[]) => {
       for (const { ex, supersetId } of flatten(items)) if (!seen.has(ex.id)) seen.set(ex.id, { ex, inSuperset: !!supersetId });
     };
@@ -27,6 +28,17 @@
   });
 
   let scroller = $state<HTMLDivElement>();
+
+  // Flipped: workouts down the side and exercises along the top. Remembered on this device.
+  const FLIP_KEY = 'workouts:history-flipped';
+  let flipped = $state(readFlip());
+  function readFlip(): boolean {
+    try { return localStorage.getItem(FLIP_KEY) === '1'; } catch { return false; }
+  }
+  function flip() {
+    flipped = !flipped;
+    try { localStorage.setItem(FLIP_KEY, flipped ? '1' : '0'); } catch { /* not stored: fine */ }
+  }
 </script>
 
 <header class="bar">
@@ -40,50 +52,64 @@
   <!-- A scrollable region has to be focusable so it can be scrolled from the keyboard. -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="scroller" bind:this={scroller} tabindex="0" role="region" aria-label="Done and missed workouts">
-    <table>
-      <thead>
-        <tr>
-          <th scope="col"><span class="sr">Exercise</span></th>
+    {#snippet corner()}
+      <th scope="col" class="corner">
+        <button class="icon-btn flip" aria-pressed={flipped} aria-label="Flip the table: {flipped ? 'workouts along the top' : 'workouts down the side'}" onclick={flip}><Icon name="transpose" size={24} /></button>
+      </th>
+    {/snippet}
+    {#snippet dateHead(w: Workout, scope: 'col' | 'row')}
+      <th {scope} class="date-head" class:missed-col={!isLogged(w)} class:today={w.date === today}><a href="#/w/{w.id}">{fmtShort(w.date)}</a>{#if !isLogged(w)}<span class="sr"> (missed)</span>{/if}</th>
+    {/snippet}
+    {#snippet nameHead(row: Row, scope: 'col' | 'row')}
+      {@const unit = unitOf(row.ex)}
+      {@const reps = describePlan(row.ex, row.inSuperset).replace(/^Activity · record .*$/, '')}
+      {@const shownUnit = unit && unit !== '×' ? unit : ''}
+      <th {scope} class="name-head">{row.ex.name}<span class="muted plan">{[reps, shownUnit].filter(Boolean).join('; ')}</span></th>
+    {/snippet}
+    {#snippet cell(w: Workout, { ex }: Row)}
+      {#if !isLogged(w)}
+        <td class="missed-cell"><span class="sr">Missed</span></td>
+      {:else}
+        {@const unit = unitOf(ex)}
+        {@const present = flatten(w.items).find((f) => f.ex.id === ex.id)}
+        {@const r = w.results[ex.id]}
+        <td class={r?.feel ?? ''}>
+          {#if r?.dumbbells}<span class="db" title="Dumbbells: weight per dumbbell"><Icon name="dumbbell" size={14} /></span><span class="sr">Dumbbells, </span>{/if}
+          {#if !present}
+            <span class="muted" aria-label="Not in this workout">·</span>
+          {:else if recordsWeights(present.ex) && numbersOf(r)?.some((v) => v !== null)}
+            {fmtValues(numbersOf(r)!)}
+          {:else if textOf(r)}
+            <span class="text" title={textOf(r)}>{textOf(r)}</span>
+          {:else if unit && (valueOf(w, present.ex) !== undefined || present.ex.type === 'activity')}
+            {fmtNum(valueOf(w, present.ex) ?? 0)}
+          {:else if (r?.setsDone ?? 0) >= present.sets}
+            <Icon name="check" size={16} /><span class="sr">Done</span>
+          {:else}
+            <span class="muted">{r?.setsDone ?? 0}/{present.sets}</span>
+          {/if}
+          {#if r?.feel}<span class="sr">, felt {r.feel}</span>{/if}
+        </td>
+      {/if}
+    {/snippet}
+
+    <table class:flipped>
+      {#if flipped}
+        <!-- Exercises along the top, one row per workout. -->
+        <thead><tr>{@render corner()}{#each rows as row (row.ex.id)}{@render nameHead(row, 'col')}{/each}</tr></thead>
+        <tbody>
           {#each columns as w (w.id)}
-            <th scope="col" class:missed-col={!isLogged(w)} class:today={w.date === today}><a href="#/w/{w.id}">{fmtShort(w.date)}</a>{#if !isLogged(w)}<span class="sr"> (missed)</span>{/if}</th>
+            <tr>{@render dateHead(w, 'row')}{#each rows as row (row.ex.id)}{@render cell(w, row)}{/each}</tr>
           {/each}
-        </tr>
-      </thead>
-      <tbody>
-        {#each rows as { ex, inSuperset } (ex.id)}
-          {@const unit = unitOf(ex)}
-          {@const reps = describePlan(ex, inSuperset).replace(/^Activity · record .*$/, '')}
-          {@const shownUnit = unit && unit !== '×' ? unit : ''}
-          <tr>
-            <th scope="row">{ex.name}<span class="muted plan">{[reps, shownUnit].filter(Boolean).join('; ')}</span></th>
-            {#each columns as w (w.id)}
-              {#if !isLogged(w)}
-                <td class="missed-cell"><span class="sr">Missed</span></td>
-              {:else}
-              {@const present = flatten(w.items).find((f) => f.ex.id === ex.id)}
-              {@const r = w.results[ex.id]}
-              <td class={r?.feel ?? ''}>
-                {#if r?.dumbbells}<span class="db" title="Dumbbells: weight per dumbbell"><Icon name="dumbbell" size={14} /></span><span class="sr">Dumbbells, </span>{/if}
-                {#if !present}
-                  <span class="muted" aria-label="Not in this workout">·</span>
-                {:else if recordsWeights(present.ex) && numbersOf(r)?.some((v) => v !== null)}
-                  {fmtValues(numbersOf(r)!)}
-                {:else if textOf(r)}
-                  <span class="text" title={textOf(r)}>{textOf(r)}</span>
-                {:else if unit && (valueOf(w, present.ex) !== undefined || present.ex.type === 'activity')}
-                  {fmtNum(valueOf(w, present.ex) ?? 0)}
-                {:else if (r?.setsDone ?? 0) >= present.sets}
-                  <Icon name="check" size={16} /><span class="sr">Done</span>
-                {:else}
-                  <span class="muted">{r?.setsDone ?? 0}/{present.sets}</span>
-                {/if}
-                {#if r?.feel}<span class="sr">, felt {r.feel}</span>{/if}
-              </td>
-              {/if}
-            {/each}
-          </tr>
-        {/each}
-      </tbody>
+        </tbody>
+      {:else}
+        <thead><tr>{@render corner()}{#each columns as w (w.id)}{@render dateHead(w, 'col')}{/each}</tr></thead>
+        <tbody>
+          {#each rows as row (row.ex.id)}
+            <tr>{@render nameHead(row, 'row')}{#each columns as w (w.id)}{@render cell(w, row)}{/each}</tr>
+          {/each}
+        </tbody>
+      {/if}
     </table>
   </div>
   <p class="legend muted"><span class="key missed-key">Missed</span><span class="key easy">Easy</span><span class="key hard">Hard</span><span class="key failed">Not finished</span></p>
@@ -97,17 +123,25 @@
   table { border-collapse: separate; border-spacing: 3px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   th, td { padding: 0.5rem 0.625rem; text-align: center; white-space: nowrap; border-radius: 8px; font-weight: 400; }
   thead th { position: sticky; top: 0; z-index: 1; background: var(--bg); color: var(--muted); }
-  thead th a { text-decoration: underline; text-underline-offset: 3px; }
+  th a { text-decoration: underline; text-underline-offset: 3px; }
+  /* The flip button sits in the empty top-left cell. */
+  th.corner { padding: 0; vertical-align: middle; }
+  .flip { width: 2.75rem; height: 2.75rem; min-height: 0; color: var(--muted); }
+  .flip[aria-pressed='true'] { color: var(--accent); }
+  /* Flipped: exercise names along the top wrap within a column; dates down the side don't. */
+  .flipped thead th.name-head { white-space: normal; min-width: 5rem; max-width: 8rem; text-align: left; vertical-align: bottom; color: var(--text); }
+  .flipped .plan { white-space: normal; color: var(--muted); }
+  .flipped tbody th.date-head { white-space: nowrap; }
   /* Row headers stay put while the workouts scroll sideways. */
   /* The exercise names are plain labels: no rounded cell, just the page colour so values scroll under them. */
   tbody th, thead th:first-child { position: sticky; left: 0; background: var(--bg); border-radius: 0; text-align: left; max-width: 9rem; white-space: normal; z-index: 2; }
   td { background: var(--card); min-width: 3.75rem; }
   /* Missed workouts: struck-through date and a red slash through each cell, as in the agenda. */
   .missed-col a { color: var(--bad); text-decoration: line-through; }
+  /* Today's workout stands out among the dates. */
+  th.today a { color: var(--accent-ink); background: var(--accent); border-radius: 8px; padding: 0.125rem 0.375rem; text-decoration: none; }
   /* Sets and reps, then the unit, on their own line under the name: "3 × 5; kg". */
   .plan { display: block; white-space: nowrap; font-size: 0.8125rem; }
-  /* Today's workout stands out among the dates. */
-  thead th.today a { color: var(--accent-ink); background: var(--accent); border-radius: 8px; padding: 0.125rem 0.375rem; text-decoration: none; }
   td.missed-cell { background: linear-gradient(to top right, transparent calc(50% - 1px), var(--bad-line) calc(50% - 1px), var(--bad-line) calc(50% + 1px), transparent calc(50% + 1px)), var(--card); opacity: 0.6; }
   .text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; max-width: 9rem; white-space: normal; text-align: left; }
   /* How it felt: a small dot in the cell's corner, so the values stay the focus. */

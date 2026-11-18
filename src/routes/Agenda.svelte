@@ -12,7 +12,7 @@
   import AddButton from '../components/AddButton.svelte';
   import { db } from '../lib/state.svelte.ts';
   import { flatten, fmtRecorded, hasProgress, slotInfo, statusOf } from '../lib/core.ts';
-  import { addDays, fmtMonth, fmtWeekday, isoWeek, today as todayISO, weekday } from '../lib/dates.ts';
+  import { addDays, diffDays, fmtMonth, fmtWeekday, isoWeek, today as todayISO } from '../lib/dates.ts';
   import type { Workout } from '../lib/types.ts';
 
   const today = todayISO();
@@ -30,14 +30,24 @@
   });
 
   const days = $derived(Array.from({ length: pastDays + futureDays + 1 }, (_, i) => addDays(today, i - pastDays)));
+
+  // Hide days with nothing on them (today always stays). Remembered on this device.
+  const COMPACT_KEY = 'workouts:agenda-compact';
+  let compact = $state(readCompact());
+  function readCompact(): boolean {
+    try { return localStorage.getItem(COMPACT_KEY) === '1'; } catch { return false; }
+  }
+  function toggleCompact() {
+    compact = !compact;
+    try { localStorage.setItem(COMPACT_KEY, compact ? '1' : '0'); } catch { /* not stored: fine */ }
+  }
+  const shown = $derived(compact ? days.filter((d) => d === today || byDate.has(d)) : days);
   const hasEarlier = $derived(db.workouts.some((w) => w.date < days[0]));
 
   function sub(w: Workout): string {
     const status = statusOf(w, today);
     const slot = slotInfo(db, w);
     const parts: string[] = [];
-    if (status === 'missed') parts.push('Missed');
-    if (status === 'partial') parts.push('Partly done');
     // A single exercise: show what was recorded, e.g. "42.5 kg", "5.4 km" or "1h 15min".
     const flat = flatten(w.items);
     if (flat.length === 1) {
@@ -68,17 +78,20 @@
   <a class="icon-btn" href="#/settings" aria-label="Settings"><Icon name="settings" /></a>
 </header>
 
-{#if hasEarlier}
-  <button class="btn small wide more" onclick={() => (pastDays += 28)}>Show earlier</button>
-{/if}
+<div class="top-row">
+  {#if hasEarlier}<button class="btn small grow" onclick={() => (pastDays += 28)}>Show earlier</button>{/if}
+  <button class="btn small grow" class:on={compact} aria-pressed={compact} onclick={toggleCompact}><Icon name="collapse" size={16} /> Hide empty days</button>
+</div>
 
 <ol class="days">
-  {#each days as date, i (date)}
+  {#each shown as date, i (date)}
     {@const list = byDate.get(date) ?? []}
-    {#if i === 0 || date.endsWith('-01')}
+    {@const prev = shown[i - 1]}
+    <!-- With empty days hidden, the 1st or a Monday may be missing: compare with the day shown before. -->
+    {#if !prev || prev.slice(0, 7) !== date.slice(0, 7)}
       <li class="month" aria-hidden="true">{fmtMonth(date)}</li>
     {/if}
-    {#if i > 0 && weekday(date) === 1}
+    {#if prev && (isoWeek(prev) !== isoWeek(date) || diffDays(prev, date) >= 7)}
       <!-- The line between weeks, with the week number in the middle. -->
       <li class="week" aria-hidden="true"><span>Week {isoWeek(date)}</span></li>
     {/if}
@@ -112,6 +125,10 @@
 
 <style>
   .more { margin: 0.5rem 0; }
+  /* Show earlier and the empty-days toggle share the row above the list. */
+  .top-row { display: flex; gap: 0.5rem; margin: 0.5rem 0; }
+  .top-row .grow { flex: 1; }
+  .top-row .on { background: var(--accent); color: var(--accent-ink); }
   .days { list-style: none; margin: 0; padding: 0; }
   .month { position: sticky; top: 3.5rem; z-index: 2; background: var(--bg); padding: 0.5rem 0.25rem; font-size: 0.8125rem; font-weight: 600; color: var(--muted); }
   .day { display: flex; gap: 0.625rem; margin-bottom: 0.5rem; scroll-margin-top: 6rem; }

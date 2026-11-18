@@ -17,14 +17,15 @@
   const total = $derived(groups.reduce((n, g) => n + g.entries.length, 0));
 
   // Keep the query in the address so Back from a workout returns to the same results.
-  $effect(() => {
+  const here = $derived.by(() => {
     const q = query.trim();
     const params = new URLSearchParams();
     if (q) params.set('q', q);
     if (sort !== 'date') params.set('sort', sort);
     const qs = params.toString();
-    history.replaceState(history.state, '', qs ? `#/search?${qs}` : '#/search');
+    return qs ? `#/search?${qs}` : '#/search';
   });
+  $effect(() => history.replaceState(history.state, '', here));
 
   onMount(() => {
     if (!query) input?.focus();
@@ -94,7 +95,7 @@
       <ol class="entries">
         {#each g.entries as e (e.workout.id + e.ex.id)}
           <li>
-            <a class="entry {e.result?.feel ?? ''}" href="#/w/{e.workout.id}">
+            <a class="entry {e.result?.feel ?? ''}" href="#/w/{e.workout.id}?back={encodeURIComponent(here)}">
               <span class="when">
                 <span class="date">{fmtDayAuto(e.workout.date)}</span>
                 <span class="muted">{e.workout.emoji} {e.workout.name}{plan(e) ? ` · ${plan(e)}` : ''}</span>
@@ -119,7 +120,9 @@
   .search input { padding-left: 2.75rem; border-radius: 99px; }
   .lead { margin: 0.25rem 0.25rem 0.5rem; }
   .sort { margin: 0.5rem 0 0; }
-  .sort .chips label { min-height: 2.25rem; padding: 0 0.875rem; font-size: 0.875rem; }
+  /* .search label (the search box) would make these blocks; keep them centred chips. */
+  .sort .chips label:has(:checked) { color: var(--accent-ink); }
+  .sort .chips label { display: inline-grid; place-items: center; color: var(--text); min-height: 2.25rem; padding: 0 0.875rem; font-size: 0.875rem; }
   .names { display: flex; flex-wrap: wrap; gap: 0.375rem; }
   .group h2 { display: flex; align-items: center; gap: 0.5rem; color: var(--text); font-size: 1rem; }
   .count { font-size: 0.75rem; font-weight: 600; color: var(--muted); background: var(--raise); border-radius: 99px; padding: 0.0625rem 0.5rem; }
