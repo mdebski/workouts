@@ -19,8 +19,10 @@
     face: 'M12 3a9 9 0 100 18 9 9 0 000-18zM9 10h.01M15 10h.01M9 15c1.5 1 4.5 1 6 0',
     share: 'M12 15V4M8 8l4-4 4 4M5 13v6h14v-6',
     link: 'M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1',
-    'first-to-end': 'M4 7h9M4 12h9M4 17h5M17 6v12M17 18l-3-3M17 18l3-3',
-    'last-to-start': 'M4 7h5M4 12h9M4 17h9M17 18V6M17 6l-3 3M17 6l3 3',
+    // A list with a curved arrow on its left: from the first item round to the last.
+    'first-to-end': 'M13 6h8M13 12h8M13 18h8M9 6C3 6 3 14 9 18M8.2 14.1L9 18l-3.9.8',
+    // The same, from the last item round to the first.
+    'last-to-start': 'M13 6h8M13 12h8M13 18h8M9 18C3 18 3 10 9 6M8.2 9.9L9 6l-3.9-.8',
     lines: 'M4 6h16M4 10h16M4 14h10M17 15v6M14 18h6',
     calendar: 'M5 6h14v14H5zM5 10h14M9 4v4M15 4v4',
     bolt: 'M13 3L5 14h6l-1 7 8-11h-6z',

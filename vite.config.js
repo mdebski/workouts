@@ -30,7 +30,8 @@ export default defineConfig({
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: { globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'] },
+      // Launch screens are only fetched by iOS when the app is added to the home screen; keep them out of the offline copy.
+      workbox: { globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'], globIgnores: ['**/splash/**'] },
     }),
   ],
 });
