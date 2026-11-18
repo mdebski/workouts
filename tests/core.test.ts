@@ -1,5 +1,5 @@
 import { assert, test } from 'vitest';
-import { addDays, diffDays, weekday } from '../src/lib/dates.ts';
+import { addDays, diffDays, isoWeek, weekday } from '../src/lib/dates.ts';
 import { describeEnd, describeRepeat, occurrences } from '../src/lib/schedule.ts';
 import { copyValues, deleteProgramme, deleteProgrammeAndWorkouts, describe, isComplete, fmtRecorded, mergeData, exerciseNames, searchExercises, fmtValues, valuesOf, emptyData, flatten, migrate, neighbours, previousDone, slotInfo, statusOf, syncProgramme, topUp, HORIZON_DAYS } from '../src/lib/core.ts';
 import type { Data, Exercise, Item, Programme, Schedule, Workout } from '../src/lib/types.ts';
@@ -83,6 +83,19 @@ test('editing lays the schedule out again but keeps done workouts', () => {
   assert.deepEqual(after.slice(0, 3).map((w) => w.scheduledDate), ['2026-11-02', '2026-11-03', '2026-11-05'], 'missed slots follow the new days');
   assert.strictEqual((after[1].items[0] as { name: string }).name, 'Chin-ups');
   assert.ok(after.slice(1).every((w) => [2, 4].includes(weekday(w.scheduledDate!))));
+});
+
+test('a weight on its own does not start a workout, but survives a rebuild', () => {
+  const p = programme(mwf);
+  const d = withProgramme(p, '2026-11-02');
+  const w = mine(d)[0];
+  w.results.pull = { setsDone: 0, recorded: 20 };
+  assert.strictEqual(statusOf(w, '2026-11-02'), 'today');
+  assert.strictEqual(statusOf(w, '2026-11-09'), 'missed');
+  syncProgramme(d, p, '2026-11-09');
+  assert.ok(mine(d).includes(w), 'the entered weight is not thrown away');
+  w.results.pull.setsDone = 1;
+  assert.strictEqual(statusOf(w, '2026-11-09'), 'partial');
 });
 
 test('moving the start date back adds the earlier slots', () => {
@@ -347,4 +360,11 @@ test('migrate validates input', () => {
   assert.deepEqual(migrate({ version: 1, programmes: [], workouts: [], settings: { weightSteps: [] } }).settings.weightSteps, [1.25, 2.5, 5]);
   assert.deepEqual(migrate({ version: 1, programmes: [], workouts: [] }).settings.emoji, ['🏋️', '🏃', '🧘'], 'older backups get the default icons');
   assert.deepEqual(migrate({ version: 1, programmes: [], workouts: [], settings: { weightSteps: [5], emoji: ['🚴', ' 🚴 ', '⚽'] } }).settings.emoji, ['🚴', '⚽'], 'duplicates are dropped');
+});
+
+test('ISO week numbers', () => {
+  assert.strictEqual(isoWeek('2026-11-16'), 47);
+  assert.strictEqual(isoWeek('2026-01-01'), 1, 'a Thursday starts week 1');
+  assert.strictEqual(isoWeek('2027-01-01'), 53, 'a Friday still belongs to the last week');
+  assert.strictEqual(isoWeek('2024-12-30'), 1, 'a Monday can start next year\'s week 1');
 });

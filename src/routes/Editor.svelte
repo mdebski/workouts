@@ -63,8 +63,11 @@
     schedule.end = k === 'count' ? { kind: 'count', n: 12 } : k === 'weeks' ? { kind: 'weeks', n: 4 } : k === 'until' ? { kind: 'until', date: schedule.start } : { kind: 'never' };
   }
 
+  /** A one-off workout of a single exercise can go without a name: it takes the exercise's. */
+  const soleExercise = $derived(isProgramme ? undefined : flatten(items).length === 1 ? flatten(items)[0].ex.name.trim() : undefined);
+
   function validate(): string {
-    if (!name.trim()) return 'Give it a name.';
+    if (!name.trim() && !soleExercise) return isProgramme ? 'Give it a name.' : 'Give it a name, or have just one exercise to name it after.';
     if (!isProgramme) return isISODate(workoutDate) ? '' : 'Pick a date.';
     if (!isISODate(schedule.start)) return 'Pick a start date.';
     const { repeat, end } = schedule;
@@ -84,7 +87,7 @@
       return;
     }
     rememberEmoji(emoji);
-    const common = { name: name.trim(), emoji: emoji.trim() || '🏋️', items: clone($state.snapshot(items)) as Item[] };
+    const common = { name: name.trim() || soleExercise || '', emoji: emoji.trim() || '🏋️', items: clone($state.snapshot(items)) as Item[] };
     if (isProgramme) {
       const s = clone($state.snapshot(schedule)) as Schedule;
       if (s.repeat.kind === 'interval') s.repeat.days = Math.round(s.repeat.days);
@@ -149,7 +152,7 @@
   <form onsubmit={(e) => { e.preventDefault(); save(); }}>
     <div class="row top">
       <label class="field icon"><span>Icon</span><input type="text" bind:this={emojiInput} value={emoji} oninput={onEmojiInput} onfocus={(e) => e.currentTarget.select()} autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="emoji-hint" /></label>
-      <label class="field grow"><span>Name</span><input type="text" bind:value={name} autocomplete="off" placeholder={isProgramme ? 'Pull day' : 'Evening run'} /></label>
+      <label class="field grow"><span>Name</span><input type="text" bind:value={name} autocomplete="off" placeholder={isProgramme ? 'Pull day' : soleExercise || 'Evening run'} /></label>
     </div>
     <EmojiPicks bind:value={emoji} options={db.settings.emoji}>
       {#snippet after()}

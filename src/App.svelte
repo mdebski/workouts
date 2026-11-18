@@ -11,18 +11,18 @@
   import Settings from './routes/Settings.svelte';
   import AddProgramme from './routes/AddProgramme.svelte';
   import Search from './routes/Search.svelte';
-  import AddActivity from './routes/AddActivity.svelte';
 
   const route = $derived(router.route);
 
   // Swipe left / right: between the two main tabs, and between workouts of the same name.
+  // Swipe up at the bottom of a workout: back to the agenda.
   const gestures = $derived.by((): SwipeHandlers => {
     if (route.name === 'agenda') return { left: () => go('/programmes') };
     if (route.name === 'programmes') return { right: () => go('/') };
     if (route.name === 'workout') {
       const w = getWorkout(route.id!);
       const { prev, next } = w ? neighbours(db, w) : {};
-      return { left: next && (() => go(`/w/${next.id}`)), right: prev && (() => go(`/w/${prev.id}`)) };
+      return { left: next && (() => go(`/w/${next.id}`)), right: prev && (() => go(`/w/${prev.id}`)), up: () => go('/') };
     }
     return {};
   });
@@ -43,8 +43,6 @@
     <Programmes />
   {:else if route.name === 'add'}
     {#key route.id}<AddProgramme payload={route.id!} />{/key}
-  {:else if route.name === 'add-activity'}
-    <AddActivity date={route.query.get('date') ?? undefined} />
   {:else if route.name === 'search'}
     <!-- Re-created when a link brings a different query; typing only rewrites the address, so it doesn't. -->
     {#key route.query.get('q')}<Search />{/key}

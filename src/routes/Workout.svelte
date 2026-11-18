@@ -19,10 +19,10 @@
   const last = $derived(found ? previousDone(db, found) : undefined);
   const status = $derived(found ? statusOf(found, today) : 'planned');
 
-  const FEELS: { id: Feel; label: string; icon: string }[] = [
-    { id: 'easy', label: 'Easy', icon: '🙂' },
-    { id: 'hard', label: 'Hard', icon: '😣' },
-    { id: 'failed', label: 'Not finished', icon: '❌' },
+  const FEELS: { id: Feel; label: string }[] = [
+    { id: 'easy', label: 'Easy' },
+    { id: 'hard', label: 'Hard' },
+    { id: 'failed', label: 'Not finished' },
   ];
   const STEPS: Record<Exclude<Unit, 'kg'>, number[]> = { s: [5, 10, 30], min: [1, 5, 10], km: [0.5, 1, 5], '×': [1, 5, 10] };
 
@@ -64,31 +64,17 @@
     timer.start([{ label, kind: 'rest', seconds: r.seconds }], `rest:${r.id}`);
   }
 
-  /** When a whole exercise or superset is done: the rest placed right after it, if there is one. */
-  function restAfter(w: Workout, item: Item, name: string) {
-    const next = w.items[w.items.findIndex((it) => it.id === item.id) + 1];
-    if (next?.type === 'rest') startRest(next, `Rest after ${name}`);
-  }
-
   /**
-   * Starts whatever rest follows the set (or superset round) that was just done:
-   * the rest between sets, or a rest item that comes next in the list.
+   * Starts the rest between sets after a set was just done. Rests between exercises (rest
+   * items) never start on their own: their card has a play button. A timer already running
+   * is left alone, unless it is this exercise's own timer that has just ended (fromTimer).
    */
-  function afterTick(w: Workout, ex: Exercise, sets: number, ss?: Superset) {
+  function afterTick(w: Workout, ex: Exercise, sets: number, ss?: Superset, fromTimer = false) {
+    if (ss || (timer.current && !fromTimer)) return;
     const done = w.results[ex.id]?.setsDone ?? 0;
-    if (ss) {
-      const next = ss.items[ss.items.findIndex((s) => s.id === ex.id) + 1];
-      if (next?.type === 'rest') return startRest(next, `Rest · round ${Math.min(done, ss.rounds)} of ${ss.rounds}`);
-      const all = flatten([ss]).every((f) => exerciseFinished(w.results[f.ex.id], f.ex, f.sets));
-      if (all) restAfter(w, ss, 'the superset');
-      return;
-    }
-    if (done < sets) {
-      const rest = ex.type === 'reps' ? (ex.restBetweenSets ?? 0) : 0;
-      if (rest > 0) timer.start([{ label: `${ex.name} · rest before set ${done + 1} of ${sets}`, kind: 'rest', seconds: rest }]);
-      return;
-    }
-    restAfter(w, ex, ex.name);
+    if (done >= sets) return;
+    const rest = ex.type === 'reps' ? (ex.restBetweenSets ?? 0) : 0;
+    if (rest > 0) timer.start([{ label: `${ex.name} · rest before set ${done + 1} of ${sets}`, kind: 'rest', seconds: rest }]);
   }
 
   /** Sets and reps, without what's recorded: the value chip beside it already says that. */
@@ -147,7 +133,7 @@
     touch(w);
     timer.start([{ label: `Get ready · ${ex.name}`, kind: 'prepare', seconds: 3 }, { label: `Hold · ${ex.name}`, kind: 'work', seconds, onEnd: () => {
       const r = resultOf(w, ex.id);
-      if (r.setsDone < sets) { r.setsDone++; afterTick(w, ex, sets, ss); }
+      if (r.setsDone < sets) { r.setsDone++; afterTick(w, ex, sets, ss, true); }
     } }], ex.id);
   }
 
@@ -536,10 +522,10 @@
         <span class="t-time" role="timer" aria-live="off">{fmtSecs(timer.remaining)}</span>
       </div>
       <button class="icon-btn pause" aria-label={timer.paused ? 'Resume timer' : 'Pause timer'} onclick={() => (timer.paused ? timer.resume() : timer.pause())}>
-        <Icon name={timer.paused ? 'play' : 'pause'} />
+        <Icon name={timer.paused ? 'play' : 'pause'} size={26} />
       </button>
-      <button class="icon-btn" aria-label="Skip to the next part" onclick={() => timer.skip()}><Icon name="skip" /></button>
-      <button class="icon-btn" aria-label="Stop timer" onclick={() => timer.stop()}><Icon name="x" /></button>
+      <button class="icon-btn" aria-label="Skip to the next part" onclick={() => timer.skip()}><Icon name="skip" size={26} /></button>
+      <button class="icon-btn" aria-label="Stop timer" onclick={() => timer.stop()}><Icon name="x" size={26} /></button>
     </div>
   {/if}
 
@@ -650,12 +636,12 @@
   .more summary { min-height: 2.75rem; display: flex; align-items: center; cursor: pointer; padding: 0 0.25rem; }
   .more > :not(summary) { margin-top: 0.5rem; }
 
-  .spacer { height: 6rem; }
+  .spacer { height: 8.5rem; }
   .timer {
     position: fixed; z-index: 10; left: 50%; translate: -50% 0;
     bottom: calc(0.75rem + env(safe-area-inset-bottom)); width: min(calc(100% - 1.5rem), 32.5rem);
-    display: flex; align-items: center; gap: 0.375rem;
-    padding: 0.625rem 0.5rem 0.625rem 1rem; border-radius: 22px;
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 1rem 0.75rem 1rem 1.25rem; border-radius: 26px;
     background: var(--accent-deep); color: var(--text);
     box-shadow: 0 6px 24px rgb(0 0 0 / 0.5);
   }
@@ -666,11 +652,11 @@
   .timer.prepare { background: var(--warn); color: var(--warn-ink); }
   /* Every button on the bar: the same height, a dark wash over the bar colour and the bar's
      dark text, so they read on green and red alike (the plain icon-button hover is too dark here). */
-  .timer .btn, .timer .icon-btn { min-height: 2.75rem; height: 2.75rem; background: rgb(0 0 0 / 0.22); color: inherit; }
+  .timer .btn, .timer .icon-btn { min-height: 3.25rem; height: 3.25rem; background: rgb(0 0 0 / 0.22); color: inherit; }
   .timer .btn:hover, .timer .icon-btn:hover { background: rgb(0 0 0 / 0.34); }
-  .timer .icon-btn { width: 2.75rem; }
+  .timer .icon-btn { width: 3.25rem; }
   /* The label and time take the free space, so the buttons sit together on the right. */
   .timer .grow { flex: 1; display: grid; min-width: 0; }
-  .t-label { font-size: 0.8125rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .t-time { font-size: 1.75rem; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .t-label { font-size: 1rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .t-time { font-size: 3rem; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.05; }
 </style>

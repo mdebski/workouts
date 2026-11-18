@@ -23,6 +23,13 @@ export const diffDays = (from: ISODate, to: ISODate) => Math.round((utc(to) - ut
 /** 1 = Monday … 7 = Sunday */
 export const weekday = (iso: ISODate) => ((new Date(utc(iso)).getUTCDay() + 6) % 7) + 1;
 
+/** ISO 8601 week number: weeks start on Monday, and week 1 holds the year's first Thursday. */
+export function isoWeek(iso: ISODate): number {
+  const thursday = addDays(iso, 4 - weekday(iso));
+  const jan1 = `${thursday.slice(0, 4)}-01-01`;
+  return Math.floor(diffDays(jan1, thursday) / 7) + 1;
+}
+
 export const maxISO = (a: ISODate, b: ISODate) => (a > b ? a : b);
 
 export const isISODate = (s: unknown): s is ISODate =>

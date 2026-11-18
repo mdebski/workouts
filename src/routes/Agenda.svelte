@@ -12,7 +12,7 @@
   import AddButton from '../components/AddButton.svelte';
   import { db } from '../lib/state.svelte.ts';
   import { flatten, fmtRecorded, hasProgress, slotInfo, statusOf } from '../lib/core.ts';
-  import { addDays, fmtMonth, fmtWeekday, today as todayISO, weekday } from '../lib/dates.ts';
+  import { addDays, fmtMonth, fmtWeekday, isoWeek, today as todayISO, weekday } from '../lib/dates.ts';
   import type { Workout } from '../lib/types.ts';
 
   const today = todayISO();
@@ -78,7 +78,11 @@
     {#if i === 0 || date.endsWith('-01')}
       <li class="month" aria-hidden="true">{fmtMonth(date)}</li>
     {/if}
-    <li class="day" class:is-today={date === today} class:week-start={i > 0 && weekday(date) === 1} id={date === today ? 'today' : undefined}>
+    {#if i > 0 && weekday(date) === 1}
+      <!-- The line between weeks, with the week number in the middle. -->
+      <li class="week" aria-hidden="true"><span>Week {isoWeek(date)}</span></li>
+    {/if}
+    <li class="day" class:is-today={date === today} id={date === today ? 'today' : undefined}>
       <div class="date">
         <span>{date === today ? 'Today' : fmtWeekday(date)}</span>
         <b>{Number(date.slice(8))}</b>
@@ -111,12 +115,13 @@
   .days { list-style: none; margin: 0; padding: 0; }
   .month { position: sticky; top: 3.5rem; z-index: 2; background: var(--bg); padding: 0.5rem 0.25rem; font-size: 0.8125rem; font-weight: 600; color: var(--muted); }
   .day { display: flex; gap: 0.625rem; margin-bottom: 0.5rem; scroll-margin-top: 6rem; }
-  /* A thin line above each Monday separates the weeks. */
-  .day.week-start { border-top: 1px solid var(--line); padding-top: 0.5rem; }
+  /* A line before each Monday separates the weeks, with the week number in the middle. */
+  .week { display: flex; align-items: center; gap: 0.625rem; margin: 0.25rem 0 0.5rem; font-size: 0.75rem; font-weight: 600; color: var(--muted); }
+  .week::before, .week::after { content: ''; flex: 1; border-top: 1px solid var(--line); }
   .date { width: 2.75rem; flex: none; text-align: center; font-size: 0.75rem; color: var(--muted); padding-top: 0.375rem; }
   .date b { display: block; font-size: 1.125rem; font-weight: 650; color: var(--text); border-radius: 10px; }
   /* Today's row: a faint tint behind the date and its workouts, with some room above and below. */
-  .day.is-today { background: var(--today-tint); border: none; border-radius: var(--radius); padding: 0.375rem; margin: 0.75rem -0.375rem; }
+  .day.is-today { background: var(--today-tint); border-radius: var(--radius); padding: 0.375rem; margin: 0.75rem -0.375rem; }
   .is-today .date { color: var(--accent); }
   .is-today .date b { background: var(--accent); color: var(--accent-ink); }
   /* Two workouts side by side; a day with one leaves the other half empty. */

@@ -21,10 +21,10 @@
   }
   let { open = $bindable(false), name, unit, value, last, steps, onset, dumbbells, ondumbbells, feel, onfeel }: Props = $props();
 
-  const FEELS: { id: Feel; label: string; icon: string }[] = [
-    { id: 'easy', label: 'Easy', icon: '🙂' },
-    { id: 'hard', label: 'Hard', icon: '😣' },
-    { id: 'failed', label: 'Not finished', icon: '❌' },
+  const FEELS: { id: Feel; label: string }[] = [
+    { id: 'easy', label: 'Easy' },
+    { id: 'hard', label: 'Hard' },
+    { id: 'failed', label: 'Not finished' },
   ];
 
   let draft = $state(0);
@@ -84,7 +84,7 @@
     {#if onfeel}
       <div class="feels" role="group" aria-label="How did it feel?">
         {#each FEELS as f}
-          <button type="button" class="btn small {f.id}" aria-pressed={feel === f.id} onclick={() => onfeel(feel === f.id ? undefined : f.id)}><span aria-hidden="true">{f.icon}</span> {f.label}</button>
+          <button type="button" class="btn small {f.id}" aria-pressed={feel === f.id} onclick={() => onfeel(feel === f.id ? undefined : f.id)}><span class="dot" aria-hidden="true"></span> {f.label}</button>
         {/each}
       </div>
     {/if}
@@ -109,6 +109,13 @@
   .grid { display: grid; grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr)); gap: 0.5rem; margin-bottom: 1rem; }
   .grid .btn { font-size: 1.0625rem; }
   .feels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.375rem; margin-bottom: 0.75rem; }
+  /* A coloured dot per feeling, the same colours as the dot on the exercise card. */
+  .dot { display: inline-block; width: 0.625rem; height: 0.625rem; border-radius: 50%; background: var(--feel); flex: none; }
+  .feels .easy { --feel: var(--ok); }
+  .feels .hard { --feel: var(--warn); }
+  .feels .failed { --feel: var(--bad); }
+  /* Pressed: the button takes the colour, so the dot gets a ring in the button's text colour. */
+  .feels .btn[aria-pressed='true'] .dot { box-shadow: 0 0 0 2px currentColor; }
   .feels .btn[aria-pressed='true'].easy { background: var(--ok); color: var(--ok-ink); }
   .feels .btn[aria-pressed='true'].hard { background: var(--warn); color: var(--warn-ink); }
   .feels .btn[aria-pressed='true'].failed { background: var(--bad); color: var(--bad-ink); }

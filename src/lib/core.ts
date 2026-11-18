@@ -230,10 +230,19 @@ export function isComplete(w: Workout): boolean {
   return flat.length > 0 && flat.every(({ ex, sets }) => exerciseFinished(w.results[ex.id], ex, sets));
 }
 
-/** Anything at all recorded: a ticked set, a value, a note or how it felt. */
+/**
+ * Started: a ticked set, how it felt, or an activity's value. A weight or other value on its
+ * own doesn't count, since it can be filled in before starting.
+ */
 export function hasProgress(w: Workout): boolean {
-  return Object.values(w.results).some((r) => r.setsDone > 0 || hasRecorded(r) || !!r.feel);
+  return flatten(w.items).some(({ ex }) => {
+    const r = w.results[ex.id];
+    return !!r && (r.setsDone > 0 || !!r.feel || (ex.type === 'activity' && hasRecorded(r)));
+  });
 }
+
+/** Anything entered at all, so it is never thrown away when a schedule is rebuilt. */
+const hasEntries = (w: Workout) => isLogged(w) || !!w.startedAt || !!w.notes?.trim() || Object.values(w.results).some(hasRecorded);
 
 /** Done, or at least started: the workouts that count as history. */
 export const isLogged = (w: Workout) => isComplete(w) || hasProgress(w);
@@ -383,7 +392,7 @@ export function mergeData(local: Data, incoming: Data): MergeSummary {
     const k = slotKey(w);
     if (k) bySlot.set(k, i);
   });
-  const untouched = (w: Workout) => !isLogged(w) && !w.startedAt;
+  const untouched = (w: Workout) => !hasEntries(w);
 
   for (const w of incoming.workouts) {
     const k = slotKey(w);
@@ -502,7 +511,7 @@ function fromProgramme(p: Programme, date: ISODate): Workout {
  * Archiving only stops future planning: past slots stay as they are.
  */
 export function syncProgramme(data: Data, p: Programme, today: ISODate): void {
-  const worked = (w: Workout) => isLogged(w) || !!w.startedAt || !!w.notes?.trim();
+  const worked = hasEntries;
   const keep = p.archived ? (w: Workout) => worked(w) || (w.scheduledDate ?? w.date) < today : worked;
   const kept = data.workouts.filter((w) => w.programmeId === p.id && keep(w));
   data.workouts = data.workouts.filter((w) => w.programmeId !== p.id || keep(w));
@@ -542,7 +551,7 @@ export function deleteProgramme(data: Data, id: string, today: ISODate): void {
   p.archived = true;
   syncProgramme(data, p, today);
   // Missed slots go too; completed and started workouts stay as history.
-  data.workouts = data.workouts.filter((w) => w.programmeId !== id || isLogged(w) || !!w.startedAt);
+  data.workouts = data.workouts.filter((w) => w.programmeId !== id || hasEntries(w));
   data.programmes = data.programmes.filter((p) => p.id !== id);
 }
 

@@ -121,6 +121,8 @@ input[type='date']::-webkit-date-and-time-value { text-align: left; }
 .chips label:has(:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Bottom sheet */
+/* A sheet that takes focus itself (so the keyboard stays down) shows no focus ring for it. */
+dialog.sheet:focus { outline: none; }
 dialog.sheet {
   width: 100%; max-width: 34rem; max-height: 90dvh;
   margin: auto auto 0; padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom));

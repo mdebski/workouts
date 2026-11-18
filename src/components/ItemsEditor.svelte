@@ -84,7 +84,7 @@
   const int = (v: unknown, min: number, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(min, Math.round(v)) : fallback);
   const optional = (v: unknown) => (typeof v === 'number' && v > 0 ? Math.round(v) : undefined);
 
-  async function apply(another = false) {
+  function apply(another = false) {
     draft.name = draft.name.trim();
     if (!draft.name) {
       error = 'Give the exercise a name.';
@@ -113,8 +113,6 @@
     // Start the next one as a copy of the one just added: same type, sets, reps and rests.
     // Only the name and notes are specific to an exercise, so those start empty.
     draft = { ...clone(value), id: uid(), name: '', description: undefined };
-    await tick();
-    nameInput?.focus();
   }
 
   const parseScheme = (text: string) => (text.match(/\d+/g) ?? []).map(Number).filter((n) => n > 0).slice(0, 20);
@@ -179,6 +177,11 @@
     const it = arr[i];
     if (results && it && it.id in results) delete results[it.id];
     arr.splice(i, 1);
+  }
+
+  /** The copy button on an exercise row: the same exercise again, right below, with nothing recorded. */
+  function cloneAt(arr: (Item | Step)[], i: number) {
+    arr.splice(i + 1, 0, { ...clone($state.snapshot(arr[i])), id: uid() } as Exercise);
   }
 
   function remove() {
@@ -246,6 +249,7 @@
       <span class="muted">{describe(ex, superset)}</span>
       {#if recording && fmtRecorded(ex, results?.[ex.id])}<span class="recorded">{fmtRecorded(ex, results?.[ex.id])}</span>{/if}
     </button>
+    <button type="button" class="icon-btn" aria-label="Copy {ex.name}" onclick={() => cloneAt(arr, i)}><Icon name="copy" /></button>
     <button type="button" class="icon-btn" aria-label="Remove {ex.name}" onclick={() => removeAt(arr, i)}><Icon name="trash" /></button>
   </div>
 {/snippet}
@@ -290,7 +294,7 @@
   <button type="button" class="btn wide-cell" onclick={() => (severalOpen = true)}><Icon name="lines" size={18} /> Add several at once</button>
 </div>
 
-<Sheet bind:open label={isNew ? 'Add exercise' : 'Edit exercise'}>
+<Sheet bind:open focusSheet label={isNew ? 'Add exercise' : 'Edit exercise'}>
   <form onsubmit={(e) => { e.preventDefault(); void apply(); }}>
     <label class="field"><span>Name</span><input type="text" bind:this={nameInput} bind:value={draft.name} autocomplete="off" enterkeyhint="done" /></label>
     {#if error}<p class="error" role="alert">{error}</p>{/if}

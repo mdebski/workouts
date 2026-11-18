@@ -3,18 +3,17 @@
   import Sheet from './Sheet.svelte';
   import { today } from '../lib/dates.ts';
 
-  /** The "+" on both main tabs: one sheet to add an activity, a one-off workout or a programme. */
+  /** The "+" on both main tabs: one sheet to add a one-off workout or a programme. */
   let open = $state(false);
   const date = today();
 
   const CHOICES = [
-    { href: `#/a/new?date=${date}`, icon: 'run', title: 'Activity', text: 'A run, a walk, a game: one thing, with time, count or distance' },
-    { href: `#/w/new/edit?date=${date}`, icon: 'bolt', title: 'One-off workout', text: 'A single session with several exercises' },
+    { href: `#/w/new/edit?date=${date}`, icon: 'bolt', title: 'One-off workout', text: 'A single session: one exercise or activity, or several' },
     { href: '#/p/new', icon: 'calendar', title: 'Programme', text: 'A workout that repeats on a schedule' },
   ] as const;
 </script>
 
-<button class="icon-btn add" aria-label="Add an activity, workout or programme" aria-haspopup="dialog" onclick={() => (open = true)}><Icon name="plus" /></button>
+<button class="icon-btn add" aria-label="Add a workout or programme" aria-haspopup="dialog" onclick={() => (open = true)}><Icon name="plus" /></button>
 
 <Sheet bind:open label="What do you want to add?">
   <nav class="choices" aria-label="Add">
