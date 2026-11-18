@@ -1,7 +1,15 @@
 import { addDays, isISODate, maxISO } from './dates.ts';
 import { lastDay, occurrences } from './schedule.ts';
 import { formatDuration } from './duration.ts';
-import type { Data, Exercise, ISODate, Item, Programme, Result, Workout } from './types.ts';
+import type { Data, Exercise, ISODate, Item, Programme, Recorded, Result, Step, Workout } from './types.ts';
+
+// ---- Reading what was recorded --------------------------------------------
+
+export const numberOf = (r: Result | undefined): number | undefined => (typeof r?.recorded === 'number' ? r.recorded : undefined);
+export const numbersOf = (r: Result | undefined): (number | null)[] | undefined => (Array.isArray(r?.recorded) ? r.recorded : undefined);
+export const textOf = (r: Result | undefined): string | undefined => (typeof r?.recorded === 'string' && r.recorded.trim() ? r.recorded : undefined);
+/** Whether anything was recorded: a number, at least one weight, or a non-empty note. */
+export const hasRecorded = (r: Result | undefined) => numberOf(r) !== undefined || !!numbersOf(r)?.some((v) => v !== null) || textOf(r) !== undefined;
 
 /** How far ahead open-ended programmes are generated. */
 export const HORIZON_DAYS = 56;
@@ -14,7 +22,7 @@ export const emptyData = (): Data => ({
   version: 1,
   programmes: [],
   workouts: [],
-  settings: { weightSteps: [1.25, 2.5, 5] },
+  settings: { weightSteps: [1.25, 2.5, 5], emoji: ['🏋️', '🏃', '🧘'] },
 });
 
 /** Accepts anything parsed from storage or an import file and returns valid data, or throws. */
@@ -51,6 +59,24 @@ export function migrate(raw: unknown): Data {
   };
   for (const p of r.programmes) upgrade(p.items);
   for (const w of r.workouts) upgrade(w.items, w.results);
+  // Rests used to be settings on exercises ("rest after") and supersets ("between rounds",
+  // "after"). They are now items of their own, placed where they happen. Ids are derived,
+  // so the same programme converts the same way on every device.
+  type OldRests = { restAfter?: number; restBetweenRounds?: number };
+  const restsToItems = (items: Item[]): Item[] =>
+    items.flatMap((it): Item[] => {
+      const old = it as Item & OldRests;
+      const after: Item[] = old.restAfter ? [{ id: `${it.id}-rest`, type: 'rest', seconds: old.restAfter }] : [];
+      delete old.restAfter;
+      if (it.type === 'superset') {
+        for (const step of it.items) delete (step as Step & OldRests).restAfter;
+        if (old.restBetweenRounds) it.items.push({ id: `${it.id}-round-rest`, type: 'rest', seconds: old.restBetweenRounds });
+        delete old.restBetweenRounds;
+      }
+      return [it, ...after];
+    });
+  for (const p of r.programmes) p.items = restsToItems(p.items);
+  for (const w of r.workouts) w.items = restsToItems(w.items);
   // Activities used to carry a preset amount. It is now only ever recorded, so keep
   // it as the recorded value where the activity was done, then drop it.
   const untarget = (items: Item[], results?: Data['workouts'][number]['results']) => {
@@ -58,16 +84,44 @@ export function migrate(raw: unknown): Data {
       if (it.type === 'superset') untarget(it.items, results);
       else if (it.type === 'activity' && 'target' in it) {
         const done = results?.[it.id];
-        if (done && done.setsDone > 0 && done.value === undefined && typeof it.target === 'number') done.value = it.target;
+        const legacy = done as (Result & { value?: number }) | undefined;
+        if (legacy && legacy.setsDone > 0 && legacy.value === undefined && legacy.recorded === undefined && typeof it.target === 'number') legacy.value = it.target;
         delete it.target;
       }
     }
   };
   for (const p of r.programmes) untarget(p.items);
   for (const w of r.workouts) untarget(w.items, w.results);
+  // A result used to keep a number, several weights and a note in separate fields,
+  // at most one of them set. They're now a single `recorded`.
+  for (const w of r.workouts) {
+    for (const res of Object.values(w.results) as (Result & { value?: number; values?: (number | null)[]; text?: string })[]) {
+      if (res.recorded === undefined) {
+        const was: Recorded | undefined = res.value ?? res.values ?? (res.text || undefined);
+        if (was !== undefined) res.recorded = was;
+      }
+      delete res.value;
+      delete res.values;
+      delete res.text;
+    }
+  }
+  // Workout status used to be stored. It's now worked out from the results, so a workout
+  // stored as done keeps reading as done: anything it left unfinished counts as failed.
+  for (const w of r.workouts as (Workout & { status?: string })[]) {
+    if (w.status === 'done') {
+      for (const { ex, sets } of flatten(w.items)) {
+        const res = (w.results[ex.id] ??= { setsDone: 0 });
+        if (!exerciseFinished(res, ex, sets)) res.feel = 'failed';
+      }
+      w.completedAt ??= `${w.date}T12:00:00.000Z`;
+    }
+    delete w.status;
+  }
   const steps = r.settings?.weightSteps;
   const weightSteps = Array.isArray(steps) && steps.every((n) => typeof n === 'number' && n > 0) && steps.length ? steps : emptyData().settings.weightSteps;
-  return { version: 1, programmes: r.programmes, workouts: r.workouts, settings: { weightSteps } };
+  const icons = r.settings?.emoji;
+  const emoji = Array.isArray(icons) && icons.every((e) => typeof e === 'string' && e.trim()) ? [...new Set(icons.map((e) => e.trim()))].slice(0, 40) : emptyData().settings.emoji;
+  return { version: 1, programmes: r.programmes, workouts: r.workouts, settings: { weightSteps, emoji } };
 }
 
 // ---- Exercises -------------------------------------------------------------
@@ -79,11 +133,16 @@ export interface FlatExercise {
   supersetId?: string;
 }
 
+export const isExercise = (it: Item): it is Exercise => it.type !== 'superset' && it.type !== 'rest';
+
+/** Every exercise, in order, with how many sets (or rounds) it has. Rests aren't exercises and are left out. */
 export function flatten(items: Item[]): FlatExercise[] {
   return items.flatMap((it): FlatExercise[] =>
-    it.type === 'superset'
-      ? it.items.map((ex) => ({ ex, sets: it.rounds, supersetId: it.id }))
-      : [{ ex: it, sets: it.type === 'activity' ? 1 : it.type === 'timed' ? it.reps : it.sets }],
+    it.type === 'rest'
+      ? []
+      : it.type === 'superset'
+        ? it.items.filter(isExercise).map((ex) => ({ ex, sets: it.rounds, supersetId: it.id }))
+        : [{ ex: it, sets: it.type === 'activity' ? 1 : it.type === 'timed' ? it.reps : it.sets }],
   );
 }
 
@@ -151,20 +210,43 @@ export function resultOf(w: Workout, exId: string): Result {
 
 /** The value recorded for an exercise in this workout, if any. */
 export function valueOf(w: Workout, ex: Exercise): number | undefined {
-  return w.results[ex.id]?.value;
+  return numberOf(w.results[ex.id]);
 }
 
-export function isComplete(w: Workout): boolean {
-  return flatten(w.items).every(({ ex, sets }) => (w.results[ex.id]?.setsDone ?? 0) >= sets);
+/**
+ * An exercise is finished when all its sets (or rounds) are done, or when it's marked
+ * failed: a missed or abandoned exercise is recorded as failed. An activity is done
+ * once an amount is recorded.
+ */
+export function exerciseFinished(r: Result | undefined, ex: Exercise, sets: number): boolean {
+  if (r?.feel === 'failed') return true;
+  if (ex.type === 'activity') return (numberOf(r) ?? 0) > 0 || (r?.setsDone ?? 0) >= sets;
+  return (r?.setsDone ?? 0) >= sets;
 }
+
+/** Done means every exercise finished. Workout status is never stored, only worked out from this. */
+export function isComplete(w: Workout): boolean {
+  const flat = flatten(w.items);
+  return flat.length > 0 && flat.every(({ ex, sets }) => exerciseFinished(w.results[ex.id], ex, sets));
+}
+
+/** Anything at all recorded: a ticked set, a value, a note or how it felt. */
+export function hasProgress(w: Workout): boolean {
+  return Object.values(w.results).some((r) => r.setsDone > 0 || hasRecorded(r) || !!r.feel);
+}
+
+/** Done, or at least started: the workouts that count as history. */
+export const isLogged = (w: Workout) => isComplete(w) || hasProgress(w);
 
 // ---- Workouts --------------------------------------------------------------
 
-export type Status = 'done' | 'missed' | 'today' | 'planned';
+export type Status = 'done' | 'partial' | 'missed' | 'today' | 'planned';
 
+/** Worked out from the results and the date; see isComplete. */
 export function statusOf(w: Workout, today: ISODate): Status {
-  if (w.status === 'done') return 'done';
-  return w.date < today ? 'missed' : w.date === today ? 'today' : 'planned';
+  if (isComplete(w)) return 'done';
+  if (w.date < today) return hasProgress(w) ? 'partial' : 'missed';
+  return w.date === today ? 'today' : 'planned';
 }
 
 const order = (a: Workout, b: Workout) =>
@@ -185,8 +267,8 @@ export function neighbours(data: Data, w: Workout): { prev?: Workout; next?: Wor
 export function previousDone(data: Data, w: Workout): Workout | undefined {
   const all = sameName(data, w);
   const i = all.findIndex((o) => o.id === w.id);
-  return all.slice(0, i).reverse().find((o) => o.status === 'done')
-    ?? all.filter((o) => o.id !== w.id && o.status === 'done' && o.date <= w.date).at(-1);
+  return all.slice(0, i).reverse().find(isLogged)
+    ?? all.filter((o) => o.id !== w.id && isLogged(o) && o.date <= w.date).at(-1);
 }
 
 /** Value recorded for the matching exercise (same id, else same name) in another workout. */
@@ -194,7 +276,7 @@ export function matchingValue(from: Workout | undefined, ex: Exercise): number |
   if (!from) return undefined;
   const flat = flatten(from.items);
   const match = flat.find((f) => f.ex.id === ex.id) ?? flat.find((f) => f.ex.name === ex.name && unitOf(f.ex) === unitOf(ex));
-  return match ? from.results[match.ex.id]?.value : undefined;
+  return match ? numberOf(from.results[match.ex.id]) : undefined;
 }
 
 export const recordsWeights = (ex: Exercise): ex is Extract<Exercise, { type: 'reps' }> => ex.type === 'reps' && ex.measure === 'weights';
@@ -203,7 +285,7 @@ export const weightCountOf = (ex: Exercise) => (ex.type === 'reps' ? Math.min(6,
 
 /** The several weights recorded for an exercise, padded to its weight count. */
 export function valuesOf(w: Workout, ex: Exercise): (number | null)[] {
-  const v = w.results[ex.id]?.values ?? [];
+  const v = numbersOf(w.results[ex.id]) ?? [];
   return Array.from({ length: weightCountOf(ex) }, (_, i) => v[i] ?? null);
 }
 
@@ -211,7 +293,7 @@ export function matchingValues(from: Workout | undefined, ex: Exercise): (number
   if (!from) return undefined;
   const flat = flatten(from.items).filter((f) => recordsWeights(f.ex));
   const match = flat.find((f) => f.ex.id === ex.id) ?? flat.find((f) => f.ex.name === ex.name);
-  return match ? from.results[match.ex.id]?.values : undefined;
+  return match ? numbersOf(from.results[match.ex.id]) : undefined;
 }
 
 export const fmtValues = (values: (number | null)[]) => values.map((v) => (v === null ? '–' : fmtNum(v))).join(' / ');
@@ -223,7 +305,7 @@ export function matchingText(from: Workout | undefined, ex: Exercise): string | 
   if (!from) return undefined;
   const flat = flatten(from.items).filter((f) => recordsText(f.ex));
   const match = flat.find((f) => f.ex.id === ex.id) ?? flat.find((f) => f.ex.name === ex.name);
-  return match ? from.results[match.ex.id]?.text || undefined : undefined;
+  return match ? textOf(from.results[match.ex.id]) : undefined;
 }
 
 /** Copies every recorded value from `from`. Returns how many were copied. */
@@ -234,7 +316,7 @@ export function copyValues(w: Workout, from: Workout): number {
     if (recordsWeights(ex)) {
       const v = matchingValues(from, ex);
       if (!v?.some((x) => x !== null)) continue;
-      resultOf(w, ex.id).values = v.slice(0, weightCountOf(ex));
+      resultOf(w, ex.id).recorded = v.slice(0, weightCountOf(ex));
       copyDumbbells(w, from, ex);
       n++;
       continue;
@@ -242,14 +324,14 @@ export function copyValues(w: Workout, from: Workout): number {
     if (recordsText(ex)) {
       const t = matchingText(from, ex);
       if (t === undefined) continue;
-      resultOf(w, ex.id).text = t;
+      resultOf(w, ex.id).recorded = t;
       n++;
       continue;
     }
     if (unitOf(ex) === null || ex.type === 'activity') continue;
     const v = matchingValue(from, ex);
     if (v === undefined) continue;
-    resultOf(w, ex.id).value = v;
+    resultOf(w, ex.id).recorded = v;
     if (recordsKg(ex)) copyDumbbells(w, from, ex);
     n++;
   }
@@ -301,7 +383,7 @@ export function mergeData(local: Data, incoming: Data): MergeSummary {
     const k = slotKey(w);
     if (k) bySlot.set(k, i);
   });
-  const untouched = (w: Workout) => w.status === 'planned' && !w.startedAt && Object.keys(w.results).length === 0;
+  const untouched = (w: Workout) => !isLogged(w) && !w.startedAt;
 
   for (const w of incoming.workouts) {
     const k = slotKey(w);
@@ -311,7 +393,7 @@ export function mergeData(local: Data, incoming: Data): MergeSummary {
       byId.set(w.id, local.workouts.length - 1);
       if (k) bySlot.set(k, local.workouts.length - 1);
       summary.workoutsAdded++;
-    } else if (w.status === 'done' && untouched(local.workouts[i])) {
+    } else if (isLogged(w) && untouched(local.workouts[i])) {
       local.workouts[i] = w;
       byId.set(w.id, i);
       summary.workoutsUpdated++;
@@ -355,20 +437,23 @@ export const describePlan = (ex: Exercise, inSuperset = false) =>
 export function fmtRecorded(ex: Exercise, r: Result | undefined): string {
   if (!r) return '';
   if (ex.type === 'activity') {
-    if (r.value === undefined) return '';
-    return ex.measure === 'time' ? formatDuration(r.value * 60) : `${fmtNum(r.value)} ${activityAmount(ex).unit}`;
+    const n = numberOf(r);
+    if (n === undefined) return '';
+    return ex.measure === 'time' ? formatDuration(n * 60) : `${fmtNum(n)} ${activityAmount(ex).unit}`;
   }
-  if (recordsText(ex)) return r.text ?? '';
-  if (recordsWeights(ex)) return r.values?.some((v) => v !== null) ? `${fmtValues(r.values)} kg` : '';
+  if (recordsText(ex)) return textOf(r) ?? '';
+  if (recordsWeights(ex)) { const vs = numbersOf(r); return vs?.some((v) => v !== null) ? `${fmtValues(vs)} kg` : ''; }
   const unit = unitOf(ex);
-  if (!unit || r.value === undefined) return '';
-  return unit === 's' ? formatDuration(r.value) : `${fmtNum(r.value)} ${unit}`;
+  const n = numberOf(r);
+  if (!unit || n === undefined) return '';
+  return unit === 's' ? formatDuration(n) : `${fmtNum(n)} ${unit}`;
 }
 
 /** The number to sort a result by: its weight, time, count or distance; the heaviest of several weights. */
 export function entryValue({ result: r }: SearchEntry): number | undefined {
-  if (r?.value !== undefined) return r.value;
-  const values = r?.values?.filter((v): v is number => v !== null) ?? [];
+  const n = numberOf(r);
+  if (n !== undefined) return n;
+  const values = numbersOf(r)?.filter((v): v is number => v !== null) ?? [];
   return values.length ? Math.max(...values) : undefined;
 }
 
@@ -378,7 +463,7 @@ export function searchExercises(data: Data, query: string, sort: SearchSort = 'd
   const words = fold(query).split(' ').filter(Boolean);
   if (!words.length) return [];
   const groups = new Map<string, SearchGroup>();
-  const done = data.workouts.filter((w) => w.status === 'done').sort((a, b) => b.date.localeCompare(a.date) || (b.completedAt ?? '').localeCompare(a.completedAt ?? ''));
+  const done = data.workouts.filter(isLogged).sort((a, b) => b.date.localeCompare(a.date) || (b.completedAt ?? '').localeCompare(a.completedAt ?? ''));
   for (const workout of done) {
     for (const { ex, sets } of flatten(workout.items)) {
       const key = fold(ex.name);
@@ -400,14 +485,14 @@ export function searchExercises(data: Data, query: string, sort: SearchSort = 'd
 /** Every distinct exercise name in finished workouts, for suggestions. */
 export function exerciseNames(data: Data): string[] {
   const names = new Map<string, string>();
-  for (const w of data.workouts) if (w.status === 'done') for (const { ex } of flatten(w.items)) names.set(fold(ex.name), ex.name.trim());
+  for (const w of data.workouts) if (isLogged(w)) for (const { ex } of flatten(w.items)) names.set(fold(ex.name), ex.name.trim());
   return [...names.values()].sort((a, b) => a.localeCompare(b));
 }
 
 // ---- Programmes ------------------------------------------------------------
 
 function fromProgramme(p: Programme, date: ISODate): Workout {
-  return { id: uid(), programmeId: p.id, name: p.name, emoji: p.emoji, scheduledDate: date, date, status: 'planned', items: clone(p.items), results: {} };
+  return { id: uid(), programmeId: p.id, name: p.name, emoji: p.emoji, scheduledDate: date, date, items: clone(p.items), results: {} };
 }
 
 /**
@@ -415,7 +500,7 @@ function fromProgramme(p: Programme, date: ISODate): Workout {
  * Done, started and past (missed) workouts are kept and still use up their slot.
  */
 export function syncProgramme(data: Data, p: Programme, today: ISODate, isNew = false): void {
-  const keep = (w: Workout) => w.status === 'done' || !!w.startedAt || (w.scheduledDate ?? w.date) < today;
+  const keep = (w: Workout) => isLogged(w) || !!w.startedAt || (w.scheduledDate ?? w.date) < today;
   const kept = data.workouts.filter((w) => w.programmeId === p.id && keep(w));
   data.workouts = data.workouts.filter((w) => w.programmeId !== p.id || keep(w));
   if (p.archived) return;
@@ -455,6 +540,6 @@ export function deleteProgramme(data: Data, id: string, today: ISODate): void {
   p.archived = true;
   syncProgramme(data, p, today);
   // Missed slots go too; completed and started workouts stay as history.
-  data.workouts = data.workouts.filter((w) => w.programmeId !== id || w.status === 'done' || !!w.startedAt);
+  data.workouts = data.workouts.filter((w) => w.programmeId !== id || isLogged(w) || !!w.startedAt);
   data.programmes = data.programmes.filter((p) => p.id !== id);
 }

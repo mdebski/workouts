@@ -6,8 +6,6 @@ interface ExerciseBase {
   id: string;
   name: string;
   description?: string;
-  /** Rest in seconds after the whole exercise. */
-  restAfter?: number;
 }
 
 export interface RepsExercise extends ExerciseBase {
@@ -43,16 +41,24 @@ export interface ActivityExercise extends ExerciseBase {
 
 export type Exercise = RepsExercise | TimedExercise | ActivityExercise;
 
+/** A rest of its own, between exercises or as a step of a superset round; it has a timer. */
+export interface Rest {
+  id: string;
+  type: 'rest';
+  seconds: number;
+}
+
+/** What a superset round is made of: exercises, and rests between them. */
+export type Step = Exercise | Rest;
+
 export interface Superset {
   id: string;
   type: 'superset';
   rounds: number;
-  items: Exercise[];
-  restBetweenRounds?: number;
-  restAfter?: number;
+  items: Step[];
 }
 
-export type Item = Exercise | Superset;
+export type Item = Exercise | Superset | Rest;
 
 export type Repeat =
   | { kind: 'interval'; days: number }
@@ -77,14 +83,16 @@ export interface Programme {
   archived: boolean;
 }
 
+export type Recorded = number | (number | null)[] | string;
+
 export interface Result {
   setsDone: number;
-  /** kg, seconds, count or minutes depending on the exercise. */
-  value?: number;
-  /** Several weights, for exercises that record them; a gap is null. */
-  values?: (number | null)[];
-  /** Free text, for exercises that record it (e.g. which band was used). */
-  text?: string;
+  /**
+   * What was recorded, if anything; which kind depends on the exercise:
+   * a number (kg, seconds, minutes, km or a count), several weights (a gap is null),
+   * or a note.
+   */
+  recorded?: Recorded;
   /** The weight was done with dumbbells instead of the usual implement: value(s) are per dumbbell. */
   dumbbells?: boolean;
   feel?: Feel;
@@ -99,7 +107,6 @@ export interface Workout {
   scheduledDate?: ISODate;
   /** The day it is planned for, or was actually done. */
   date: ISODate;
-  status: 'planned' | 'done';
   startedAt?: string;
   completedAt?: string;
   notes?: string;
@@ -110,6 +117,8 @@ export interface Workout {
 
 export interface Settings {
   weightSteps: number[];
+  /** Quick icon choices in the forms. Icons you pick that aren't here get added. */
+  emoji: string[];
 }
 
 export interface Data {

@@ -4,9 +4,8 @@
   import ItemsEditor from '../components/ItemsEditor.svelte';
   import Fold from '../components/Fold.svelte';
   import EmojiPicks from '../components/EmojiPicks.svelte';
-  import RecordFields from '../components/RecordFields.svelte';
   import { describeEnd, describeRepeat } from '../lib/schedule.ts';
-  import { blankProgramme, blankWorkout, getProgramme, getWorkout, removeProgramme, removeWorkout, saveProgramme, saveWorkout } from '../lib/state.svelte.ts';
+  import { db, rememberEmoji, blankProgramme, blankWorkout, getProgramme, getWorkout, removeProgramme, removeWorkout, saveProgramme, saveWorkout } from '../lib/state.svelte.ts';
   import { clone, flatten } from '../lib/core.ts';
   import { go } from '../lib/router.svelte.ts';
   import { isISODate, today } from '../lib/dates.ts';
@@ -32,15 +31,6 @@
   let exercisesOpen = $state(true);
   // Workouts only: what was done, so a past session can be logged in one go.
   let results = $state<Record<string, Result>>('results' in source ? source.results : {});
-  let done = $state('status' in source && source.status === 'done');
-  let recordOpen = $state(true);
-
-  /** Ticking the whole workout as done ticks every exercise in it. */
-  function setWorkoutDone(on: boolean) {
-    done = on;
-    if (!on) return;
-    for (const { ex, sets } of flatten(items)) (results[ex.id] ??= { setsDone: 0 }).setsDone = sets;
-  }
 
   const count = $derived(flatten(items).length);
 
@@ -61,7 +51,6 @@
     emojiInput?.focus();
   }
 
-  const EMOJI = ['💪', '🏋️', '🏃', '🧘', '🤸', '🏊', '🧗', '🚣🏻', '🌊', '🪨', '🖐', '🩻'];
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const backHref = isProgramme ? '#/programmes' : isNew ? '#/' : `#/w/${id}`;
   const title = isProgramme ? (isNew ? 'New programme' : 'Edit programme') : isNew ? 'New workout' : 'Edit workout';
@@ -94,7 +83,8 @@
       scheduleOpen = true;
       return;
     }
-    const common = { name: name.trim(), emoji: emoji.trim() || '💪', items: clone($state.snapshot(items)) as Item[] };
+    rememberEmoji(emoji);
+    const common = { name: name.trim(), emoji: emoji.trim() || '🏋️', items: clone($state.snapshot(items)) as Item[] };
     if (isProgramme) {
       const s = clone($state.snapshot(schedule)) as Schedule;
       if (s.repeat.kind === 'interval') s.repeat.days = Math.round(s.repeat.days);
@@ -106,19 +96,20 @@
       const kept = Object.fromEntries(Object.entries(clone($state.snapshot(results)) as Record<string, Result>).filter(([k]) => ids.has(k)));
       const was = source as Workout;
       const now = new Date().toISOString();
+      const logged = !was.programmeId && workoutDate <= today();
       const w: Workout = {
         ...was,
         ...common,
         date: workoutDate,
         results: kept,
-        status: done ? 'done' : 'planned',
         // Logging after the fact says nothing about when it started, so leave that empty.
         startedAt: was.startedAt,
-        completedAt: done ? (was.completedAt ?? now) : undefined,
+        completedAt: logged ? (was.completedAt ?? now) : was.completedAt,
       };
+      // A one-off workout saved for today or earlier is a log of what was done: every set of every exercise.
+      if (logged) for (const { ex, sets } of flatten(w.items)) (w.results[ex.id] ??= { setsDone: 0 }).setsDone = sets;
       saveWorkout(w);
-      // Logged as done: back to the agenda. Otherwise open it, ready to do.
-      go(done ? '/' : `/w/${w.id}`);
+      go(logged ? '/' : `/w/${w.id}`);
     }
   }
 
@@ -152,7 +143,7 @@
       <label class="field icon"><span>Icon</span><input type="text" bind:this={emojiInput} value={emoji} oninput={onEmojiInput} onfocus={(e) => e.currentTarget.select()} autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="emoji-hint" /></label>
       <label class="field grow"><span>Name</span><input type="text" bind:value={name} autocomplete="off" placeholder={isProgramme ? 'Pull day' : 'Evening run'} /></label>
     </div>
-    <EmojiPicks bind:value={emoji} options={EMOJI}>
+    <EmojiPicks bind:value={emoji} options={db.settings.emoji}>
       {#snippet after()}
         <button type="button" class="pick-other" aria-label="Choose another emoji with your keyboard" aria-expanded={emojiHint} onclick={otherEmoji}><Icon name="face" /></button>
       {/snippet}
@@ -214,15 +205,9 @@
           <button type="button" class="icon-btn" aria-label="Move the last exercise to the start" onclick={() => items.unshift(items.pop()!)}><Icon name="last-to-start" /></button>
         {/if}
       {/snippet}
-      <ItemsEditor bind:items />
+      {#if isProgramme}<ItemsEditor bind:items />{:else}<ItemsEditor bind:items bind:results />{/if}
     </Fold>
 
-    {#if !isProgramme}
-      <Fold title="Record" bind:open={recordOpen} summary={done ? 'done' : 'not done yet'}>
-        <label class="check done-box"><input type="checkbox" checked={done} onchange={(e) => setWorkoutDone(e.currentTarget.checked)} /> Workout done</label>
-        <RecordFields {items} bind:results />
-      </Fold>
-    {/if}
 
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     <button type="submit" class="btn primary wide save">Save</button>
@@ -245,5 +230,4 @@
   .note { margin-bottom: 0.75rem; }
   .check { display: flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; margin-bottom: 0.75rem; }
   .check input { width: 1.25rem; height: 1.25rem; }
-  .done-box { font-weight: 600; margin-bottom: 0.25rem; }
 </style>

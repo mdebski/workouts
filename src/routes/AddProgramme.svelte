@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import Icon from '../components/Icon.svelte';
+  import { formatDuration } from '../lib/duration.ts';
   import { db, saveProgramme } from '../lib/state.svelte.ts';
   import { describe } from '../lib/core.ts';
   import { describeEnd, describeRepeat } from '../lib/schedule.ts';
@@ -84,9 +85,11 @@
         <li class="ss">
           <span class="muted">Superset · {item.rounds} rounds</span>
           <ul>
-            {#each item.items as ex (ex.id)}<li><strong>{ex.name}</strong> <span class="muted">{describe(ex, true)}</span></li>{/each}
+            {#each item.items as ex (ex.id)}<li>{#if ex.type === 'rest'}<strong>Rest</strong> <span class="muted">{formatDuration(ex.seconds)}</span>{:else}<strong>{ex.name}</strong> <span class="muted">{describe(ex, true)}</span>{/if}</li>{/each}
           </ul>
         </li>
+      {:else if item.type === 'rest'}
+        <li><strong>Rest</strong> <span class="muted">{formatDuration(item.seconds)}</span></li>
       {:else}
         <li><strong>{item.name}</strong> <span class="muted">{describe(item)}</span></li>
       {/if}

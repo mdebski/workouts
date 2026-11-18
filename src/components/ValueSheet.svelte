@@ -15,7 +15,7 @@
     /** When given, the sheet shows a dumbbell checkbox (weights only). */
     dumbbells?: boolean;
     ondumbbells?: (on: boolean) => void;
-    /** How the exercise felt; when onfeel is given, the sheet shows Easy / Hard / Failed. */
+    /** How the exercise felt; when onfeel is given, the sheet shows Easy / Hard / Not finished. */
     feel?: Feel;
     onfeel?: (f: Feel | undefined) => void;
   }
@@ -24,7 +24,7 @@
   const FEELS: { id: Feel; label: string; icon: string }[] = [
     { id: 'easy', label: 'Easy', icon: '🙂' },
     { id: 'hard', label: 'Hard', icon: '😣' },
-    { id: 'failed', label: 'Failed', icon: '❌' },
+    { id: 'failed', label: 'Not finished', icon: '❌' },
   ];
 
   let draft = $state(0);

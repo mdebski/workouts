@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from '../components/Icon.svelte';
   import { db, getProgramme } from '../lib/state.svelte.ts';
-  import { describePlan, fmtValues, recordsWeights, flatten, fmtNum, statusOf, unitOf, valueOf } from '../lib/core.ts';
+  import { numbersOf, textOf, describePlan, isLogged, fmtValues, recordsWeights, flatten, fmtNum, statusOf, unitOf, valueOf } from '../lib/core.ts';
   import { fmtShort, today as todayISO } from '../lib/dates.ts';
   import type { Exercise, Item } from '../lib/types.ts';
 
@@ -9,7 +9,7 @@
   const today = todayISO();
   const programme = $derived(getProgramme(id));
   const mine = $derived(db.workouts.filter((w) => w.programmeId === id));
-  const done = $derived(mine.filter((w) => w.status === 'done').sort((a, b) => a.date.localeCompare(b.date)));
+  const done = $derived(mine.filter(isLogged).sort((a, b) => a.date.localeCompare(b.date)));
   const missedList = $derived(mine.filter((w) => statusOf(w, today) === 'missed'));
   const missed = $derived(missedList.length);
   // Done and missed together, newest first, so gaps in the programme show where they happened.
@@ -45,7 +45,7 @@
         <tr>
           <th scope="col"><span class="sr">Exercise</span></th>
           {#each columns as w (w.id)}
-            <th scope="col" class:missed-col={w.status !== 'done'} class:today={w.date === today}><a href="#/w/{w.id}">{fmtShort(w.date)}</a>{#if w.status !== 'done'}<span class="sr"> (missed)</span>{/if}</th>
+            <th scope="col" class:missed-col={!isLogged(w)} class:today={w.date === today}><a href="#/w/{w.id}">{fmtShort(w.date)}</a>{#if !isLogged(w)}<span class="sr"> (missed)</span>{/if}</th>
           {/each}
         </tr>
       </thead>
@@ -57,7 +57,7 @@
           <tr>
             <th scope="row">{ex.name}<span class="muted plan">{[reps, shownUnit].filter(Boolean).join('; ')}</span></th>
             {#each columns as w (w.id)}
-              {#if w.status !== 'done'}
+              {#if !isLogged(w)}
                 <td class="missed-cell"><span class="sr">Missed</span></td>
               {:else}
               {@const present = flatten(w.items).find((f) => f.ex.id === ex.id)}
@@ -66,10 +66,10 @@
                 {#if r?.dumbbells}<span class="db" title="Dumbbells: weight per dumbbell"><Icon name="dumbbell" size={14} /></span><span class="sr">Dumbbells, </span>{/if}
                 {#if !present}
                   <span class="muted" aria-label="Not in this workout">·</span>
-                {:else if recordsWeights(present.ex) && r?.values?.some((v) => v !== null)}
-                  {fmtValues(r.values)}
-                {:else if r?.text}
-                  <span class="text" title={r.text}>{r.text}</span>
+                {:else if recordsWeights(present.ex) && numbersOf(r)?.some((v) => v !== null)}
+                  {fmtValues(numbersOf(r)!)}
+                {:else if textOf(r)}
+                  <span class="text" title={textOf(r)}>{textOf(r)}</span>
                 {:else if unit && (valueOf(w, present.ex) !== undefined || present.ex.type === 'activity')}
                   {fmtNum(valueOf(w, present.ex) ?? 0)}
                 {:else if (r?.setsDone ?? 0) >= present.sets}
@@ -86,7 +86,7 @@
       </tbody>
     </table>
   </div>
-  <p class="legend muted"><span class="key missed-key">Missed</span><span class="key easy">Easy</span><span class="key hard">Hard</span><span class="key failed">Failed</span></p>
+  <p class="legend muted"><span class="key missed-key">Missed</span><span class="key easy">Easy</span><span class="key hard">Hard</span><span class="key failed">Not finished</span></p>
 {:else}
   <div class="card"><p><strong>No finished workouts yet</strong></p><p class="muted">Each one you finish becomes a column here.</p></div>
 {/if}

@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import Icon from '../components/Icon.svelte';
   import EmojiPicks from '../components/EmojiPicks.svelte';
-  import { db, saveWorkout } from '../lib/state.svelte.ts';
+  import { db, rememberEmoji, saveWorkout } from '../lib/state.svelte.ts';
   import { fmtNum, uid } from '../lib/core.ts';
   import { isISODate, today as todayISO } from '../lib/dates.ts';
   import { formatDuration, parseDuration } from '../lib/duration.ts';
@@ -21,7 +21,6 @@
     { id: 'distance', label: 'Distance', unit: 'km', placeholder: '5.2' },
     { id: 'count', label: 'Count', unit: 'times', placeholder: '30' },
   ];
-  const EMOJI = ['🏃', '🚶', '🚴', '🏊', '🧘', '⚽', '🎾', '🧗', '⛷️', '🛶'];
 
   let name = $state('');
   let emoji = $state('🏃');
@@ -92,12 +91,13 @@
       name: name.trim(),
       emoji: emoji.trim() || '🏃',
       date,
-      status: done ? 'done' : 'planned',
       completedAt: done ? now : undefined,
       notes: notes.trim() || undefined,
       items: [{ id: exId, type: 'activity', name: name.trim(), measure }],
-      results: value !== undefined ? { [exId]: { setsDone: done && value > 0 ? 1 : 0, value } } : {},
+      // An activity with an amount is done, so a planned one carries no amount yet.
+      results: done && value !== undefined ? { [exId]: { setsDone: value > 0 ? 1 : 0, recorded: value } } : {},
     };
+    rememberEmoji(w.emoji);
     saveWorkout(w);
     go('/');
   }
@@ -118,7 +118,7 @@
     <label class="field grow"><span>Name</span><input type="text" bind:value={name} onchange={onName} list="activity-names" autocomplete="off" placeholder="Run" /></label>
   </div>
   <datalist id="activity-names">{#each [...previous.keys()] as n}<option value={n}></option>{/each}</datalist>
-  <EmojiPicks bind:value={emoji} options={EMOJI} />
+  <EmojiPicks bind:value={emoji} options={db.settings.emoji} />
 
   <fieldset>
     <legend>Record</legend>

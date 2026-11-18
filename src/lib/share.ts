@@ -4,7 +4,7 @@
 
 import { uid } from './core.ts';
 import { isISODate } from './dates.ts';
-import type { End, Exercise, ISODate, Item, Programme, Repeat } from './types.ts';
+import type { End, Exercise, ISODate, Item, Programme, Repeat, Rest, Step } from './types.ts';
 
 const MAX_ITEMS = 60;
 const MAX_PAYLOAD = 20_000;
@@ -21,7 +21,7 @@ function exercise(v: unknown): Exercise {
   if (!isObj(v)) throw new Error('bad exercise');
   const name = str(v.name, 80);
   if (!name) throw new Error('exercise without a name');
-  const base = { id: uid(), name, description: str(v.description, 300) || undefined, restAfter: rest(v.restAfter) };
+  const base = { id: uid(), name, description: str(v.description, 300) || undefined };
   if (v.type === 'reps') {
     const measure = v.measure === 'weight' || v.measure === 'weights' || v.measure === 'time' || v.measure === 'text' ? v.measure : 'none';
     const scheme = Array.isArray(v.repScheme) ? v.repScheme.slice(0, 20).map((n) => int(n, 1, 999, 1)) : [];
@@ -44,12 +44,25 @@ function exercise(v: unknown): Exercise {
   throw new Error('unknown exercise type');
 }
 
-function item(v: unknown): Item {
+const restItem = (seconds: unknown): Rest[] => {
+  const s = rest(seconds);
+  return s ? [{ id: uid(), type: 'rest', seconds: s }] : [];
+};
+
+/** One shared step, plus the rest older links kept as a setting on it ("rest after"). */
+function step(v: unknown): Step[] {
+  if (isObj(v) && v.type === 'rest') return restItem(v.seconds);
+  const steps: Step[] = [exercise(v)];
+  return isObj(v) ? [...steps, ...restItem(v.restAfter)] : steps;
+}
+
+function item(v: unknown): Item[] {
   if (isObj(v) && v.type === 'superset') {
     if (!Array.isArray(v.items)) throw new Error('bad superset');
-    return { id: uid(), type: 'superset', rounds: int(v.rounds, 1, 99, 3), items: v.items.slice(0, MAX_ITEMS).map(exercise), restBetweenRounds: rest(v.restBetweenRounds), restAfter: rest(v.restAfter) };
+    const steps = v.items.slice(0, MAX_ITEMS).flatMap((s): Step[] => (isObj(s) && s.type === 'rest' ? restItem(s.seconds) : [exercise(s)]));
+    return [{ id: uid(), type: 'superset', rounds: int(v.rounds, 1, 99, 3), items: [...steps, ...restItem(v.restBetweenRounds)] }, ...restItem(v.restAfter)];
   }
-  return exercise(v);
+  return step(v);
 }
 
 function repeat(v: unknown): Repeat {
@@ -82,7 +95,7 @@ export function sanitiseProgramme(raw: unknown, today: ISODate): Programme {
     name,
     emoji: str(raw.emoji, 8) || '💪',
     description: str(raw.description, 300) || undefined,
-    items: raw.items.slice(0, MAX_ITEMS).map(item),
+    items: raw.items.slice(0, MAX_ITEMS).flatMap(item),
     schedule: { start, repeat: repeat(raw.schedule.repeat), end: ending },
     archived: false,
   };

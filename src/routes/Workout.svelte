@@ -3,13 +3,13 @@
   import Icon from '../components/Icon.svelte';
   import { formatDuration } from '../lib/duration.ts';
   import ValueSheet from '../components/ValueSheet.svelte';
-  import { db, getWorkout, removeWorkout } from '../lib/state.svelte.ts';
-  import { activityAmount, describePlan, recordsKg, valuesOf, matchingValues, recordsWeights, fmtValues, copyValues, matchingText, recordsText, fmtNum, describe, flatten, fmtSecs, fmtValue, isComplete, matchingValue, neighbours, previousDone, resultOf, statusOf, unitOf, valueOf, type Unit } from '../lib/core.ts';
+  import { db, getProgramme, getWorkout, removeWorkout } from '../lib/state.svelte.ts';
+  import { clone, hasRecorded as resultHasRecorded, numberOf, numbersOf, textOf, activityAmount, describePlan, exerciseFinished, recordsKg, valuesOf, matchingValues, recordsWeights, fmtValues, copyValues, matchingText, recordsText, fmtNum, describe, flatten, fmtSecs, fmtValue, isComplete, matchingValue, neighbours, previousDone, resultOf, statusOf, unitOf, valueOf, type Unit } from '../lib/core.ts';
   import { fmtDay, fmtLong, isISODate, today as todayISO } from '../lib/dates.ts';
   import { go } from '../lib/router.svelte.ts';
   import { timer, type Phase } from '../lib/timer.svelte.ts';
   import { keepAwake } from '../lib/wakelock.ts';
-  import type { Exercise, Feel, Superset, Workout } from '../lib/types.ts';
+  import type { Exercise, Feel, Item, Rest, Superset, Workout } from '../lib/types.ts';
 
   let { id }: { id: string } = $props();
 
@@ -22,7 +22,7 @@
   const FEELS: { id: Feel; label: string; icon: string }[] = [
     { id: 'easy', label: 'Easy', icon: '🙂' },
     { id: 'hard', label: 'Hard', icon: '😣' },
-    { id: 'failed', label: 'Failed', icon: '❌' },
+    { id: 'failed', label: 'Not finished', icon: '❌' },
   ];
   const STEPS: Record<Exclude<Unit, 'kg'>, number[]> = { s: [5, 10, 30], min: [1, 5, 10], km: [0.5, 1, 5], '×': [1, 5, 10] };
 
@@ -44,7 +44,7 @@
   });
 
   const touch = (w: Workout) => {
-    if (w.status === 'planned') w.startedAt ??= new Date().toISOString();
+    if (!isComplete(w)) w.startedAt ??= new Date().toISOString();
   };
 
   function openValue(ex: Exercise, slot = -1) {
@@ -59,22 +59,36 @@
     touch(w);
   }
 
-  /** Starts whatever rest follows the set that was just ticked. */
+  /** Starts a rest item's timer; its card shows it running. */
+  function startRest(r: Rest, label: string) {
+    timer.start([{ label, kind: 'rest', seconds: r.seconds }], `rest:${r.id}`);
+  }
+
+  /** When a whole exercise or superset is done: the rest placed right after it, if there is one. */
+  function restAfter(w: Workout, item: Item, name: string) {
+    const next = w.items[w.items.findIndex((it) => it.id === item.id) + 1];
+    if (next?.type === 'rest') startRest(next, `Rest after ${name}`);
+  }
+
+  /**
+   * Starts whatever rest follows the set (or superset round) that was just done:
+   * the rest between sets, or a rest item that comes next in the list.
+   */
   function afterTick(w: Workout, ex: Exercise, sets: number, ss?: Superset) {
     const done = w.results[ex.id]?.setsDone ?? 0;
-    let rest = 0;
-    let label = `Rest after ${ex.name}`;
     if (ss) {
-      const roundDone = ss.items.every((e) => (w.results[e.id]?.setsDone ?? 0) >= done);
-      if (roundDone) rest = (done < ss.rounds ? ss.restBetweenRounds : ss.restAfter) ?? 0;
-      label = done < ss.rounds ? `Rest before round ${done + 1} of ${ss.rounds}` : 'Rest after the superset';
-    } else if (done < sets) {
-      rest = ex.type === 'reps' ? (ex.restBetweenSets ?? 0) : 0;
-      label = `${ex.name} · rest before set ${done + 1} of ${sets}`;
-    } else {
-      rest = ex.restAfter ?? 0;
+      const next = ss.items[ss.items.findIndex((s) => s.id === ex.id) + 1];
+      if (next?.type === 'rest') return startRest(next, `Rest · round ${Math.min(done, ss.rounds)} of ${ss.rounds}`);
+      const all = flatten([ss]).every((f) => exerciseFinished(w.results[f.ex.id], f.ex, f.sets));
+      if (all) restAfter(w, ss, 'the superset');
+      return;
     }
-    if (rest > 0) timer.start([{ label, kind: 'rest', seconds: rest }]);
+    if (done < sets) {
+      const rest = ex.type === 'reps' ? (ex.restBetweenSets ?? 0) : 0;
+      if (rest > 0) timer.start([{ label: `${ex.name} · rest before set ${done + 1} of ${sets}`, kind: 'rest', seconds: rest }]);
+      return;
+    }
+    restAfter(w, ex, ex.name);
   }
 
   /** Sets and reps, without what's recorded: the value chip beside it already says that. */
@@ -122,7 +136,8 @@
       phases.push({ label: `On · ${ex.name} · ${i + 1} of ${ex.reps}`, kind: 'work', seconds: ex.workSec, onEnd });
       if (!last) phases.push({ label: `Off · ${ex.name} · ${i + 1} of ${ex.reps}`, kind: 'rest', seconds: ex.restSec });
     }
-    timer.start(phases, ex.id);
+    // A few seconds to get into position first, as with holds.
+    timer.start([{ label: `Get ready · ${ex.name}`, kind: 'prepare', seconds: 3 }, ...phases], ex.id);
   }
 
   /** Hold (e.g. plank): counts down the recorded time, then ticks the set. */
@@ -130,7 +145,7 @@
     const seconds = valueOf(w, ex);
     if (!seconds) return openValue(ex);
     touch(w);
-    timer.start([{ label: ex.name, kind: 'work', seconds, onEnd: () => {
+    timer.start([{ label: `Get ready · ${ex.name}`, kind: 'prepare', seconds: 3 }, { label: `Hold · ${ex.name}`, kind: 'work', seconds, onEnd: () => {
       const r = resultOf(w, ex.id);
       if (r.setsDone < sets) { r.setsDone++; afterTick(w, ex, sets, ss); }
     } }], ex.id);
@@ -139,7 +154,7 @@
   function record(w: Workout, ex: Exercise | undefined, value: number) {
     if (!ex) return;
     const r = resultOf(w, ex.id);
-    r.value = value;
+    r.recorded = value;
     touch(w);
     // An activity is done once any amount is recorded (every round, inside a superset), and undone at zero.
     if (ex.type === 'activity') {
@@ -161,7 +176,7 @@
     const r = resultOf(w, ex.id);
     const values = valuesOf(w, ex);
     values[slot] = value;
-    r.values = values;
+    r.recorded = values;
     touch(w);
   }
 
@@ -180,7 +195,7 @@
   function vsLast(w: Workout, ex: Exercise): string {
     if (!last) return '';
     if (recordsText(ex)) {
-      const now = w.results[ex.id]?.text?.trim();
+      const now = textOf(w.results[ex.id])?.trim();
       const before = matchingText(last, ex)?.trim();
       if (!now || !before) return '';
       return now === before ? 'Same as last' : `Last time: ${before}`;
@@ -189,7 +204,7 @@
       const ns = (vs ?? []).filter((v): v is number => v !== null);
       return ns.length ? Math.max(...ns) : undefined;
     };
-    const now = recordsWeights(ex) ? heaviest(w.results[ex.id]?.values) : w.results[ex.id]?.value;
+    const now = recordsWeights(ex) ? heaviest(numbersOf(w.results[ex.id])) : numberOf(w.results[ex.id]);
     const before = recordsWeights(ex) ? heaviest(matchingValues(last, ex)) : matchingValue(last, ex);
     if (now === undefined || before === undefined) return '';
     const diff = Math.round((now - before) * 100) / 100;
@@ -222,13 +237,13 @@
         const before = matchingValues(last, ex) ?? [];
         const next = now.map((v, i) => (v ?? before[i] ?? null) === null ? null : step((v ?? before[i])!));
         if (next.some((v) => v !== null)) {
-          resultOf(w, ex.id).values = next;
+          resultOf(w, ex.id).recorded = next;
           n++;
         }
       } else {
         const base = valueOf(w, ex) ?? matchingValue(last, ex);
         if (base === undefined) continue;
-        resultOf(w, ex.id).value = step(base);
+        resultOf(w, ex.id).recorded = step(base);
         n++;
       }
     }
@@ -245,7 +260,7 @@
 
   /** Whether anything was entered for this workout: weights, times, counts, notes or the dumbbell flag. */
   const hasRecorded = (w: Workout) =>
-    Object.values(w.results).some((r) => r.value !== undefined || r.values?.some((v) => v !== null) || !!r.text || r.dumbbells);
+    Object.values(w.results).some((r) => resultHasRecorded(r) || r.dumbbells);
 
   function clearRecorded(w: Workout) {
     if (!hasRecorded(w)) return (copied = 'Nothing recorded yet.');
@@ -253,9 +268,7 @@
     for (const { ex } of flatten(w.items)) {
       const r = w.results[ex.id];
       if (!r) continue;
-      delete r.value;
-      delete r.values;
-      delete r.text;
+      delete r.recorded;
       delete r.dumbbells;
       // An activity is done only when an amount is recorded.
       if (ex.type === 'activity') r.setsDone = 0;
@@ -274,7 +287,6 @@
     const now = new Date().toISOString();
     w.startedAt ??= now;
     w.completedAt = now;
-    w.status = 'done';
     // A past or missed workout stays on its own day when ticked off later (it's being
     // logged, not done now). One done ahead of schedule moves to today; scheduledDate keeps the slot.
     if (w.date > today) w.date = today;
@@ -283,13 +295,13 @@
   /** How many exercises are done, for the control between previous and next. */
   const progress = $derived.by(() => {
     const flat = found ? flatten(found.items) : [];
-    return { total: flat.length, done: flat.filter((f) => (found!.results[f.ex.id]?.setsDone ?? 0) >= f.sets).length };
+    return { total: flat.length, done: flat.filter((f) => exerciseFinished(found!.results[f.ex.id], f.ex, f.sets)).length };
   });
 
   /** The control between previous and next: ticks every exercise, or unticks them all once everything is done. */
   function markAll(w: Workout) {
     const flat = flatten(w.items);
-    const all = flat.every((f) => (w.results[f.ex.id]?.setsDone ?? 0) >= f.sets);
+    const all = isComplete(w);
     for (const { ex, sets } of flat) {
       // An activity counts as done by its recorded amount, so it isn't ticked from here.
       if (ex.type === 'activity') continue;
@@ -299,9 +311,8 @@
     if (all) timer.stop();
   }
 
-  // A workout is finished when every exercise is done, and open again if one is unticked.
-  // Only changes made here count: a workout already marked done that isn't complete (say,
-  // logged with a failed exercise) stays done until something here changes it.
+  // Done-ness itself is worked out from the results; this only notes when it was finished
+  // (and moves a workout done ahead of schedule to today).
   let wasComplete: boolean | undefined;
   $effect(() => {
     const w = found;
@@ -313,14 +324,30 @@
     }
     wasComplete = complete;
     untrack(() => {
-      if (complete && w.status !== 'done') finish(w);
-      else if (!complete && w.status === 'done') reopen(w);
+      if (complete) finish(w);
+      else reopen(w);
     });
   });
 
   function reopen(w: Workout) {
-    w.status = 'planned';
     w.completedAt = undefined;
+  }
+
+  /**
+   * Puts the programme's current exercises back, undoing edits made to this workout.
+   * Values for exercises that are still there stay; the rest are dropped.
+   */
+  function resetToProgramme(w: Workout) {
+    const p = w.programmeId ? getProgramme(w.programmeId) : undefined;
+    if (!p) return;
+    if (!confirm(`Reset this workout to "${p.name}" as it is now? Exercises you added or changed here go back to the programme's; anything recorded for exercises that are no longer there is removed.`)) return;
+    timer.stop();
+    w.items = clone($state.snapshot(p.items) as Item[]);
+    w.name = p.name;
+    w.emoji = p.emoji;
+    const ids = new Set(flatten(w.items).map((f) => f.ex.id));
+    for (const id of Object.keys(w.results)) if (!ids.has(id)) delete w.results[id];
+    copied = 'Reset to the programme.';
   }
 
   function remove(w: Workout) {
@@ -338,6 +365,9 @@
   <header class="bar">
     <a class="icon-btn" href="#/" aria-label="Back to agenda"><Icon name="back" /></a>
     <h1 tabindex="-1"><span aria-hidden="true">{w.emoji}</span> {w.name}</h1>
+    {#if w.programmeId && getProgramme(w.programmeId)}
+      <button class="icon-btn" aria-label="Reset this workout to the programme" title="Reset to the programme" onclick={() => resetToProgramme(w)}><Icon name="reset" /></button>
+    {/if}
     <a class="icon-btn" href="#/w/{w.id}/edit" aria-label="Edit this workout"><Icon name="edit" /></a>
   </header>
 
@@ -370,6 +400,19 @@
     <p class="vs" aria-hidden={!text && !feel}>{#if feel}<span class="feel-dot {feel.id}" title="Felt {feel.label.toLowerCase()}"><span class="sr">Felt {feel.label.toLowerCase()}. </span></span>{/if}{text || '\u00a0'}</p>
   {/snippet}
 
+  <!-- A rest item: its length and a timer (play, then pause / resume while it runs). -->
+  {#snippet restCard(r: Rest, label: string)}
+    {@const running = timer.owner === `rest:${r.id}` && !!timer.current}
+    <div class="card rest-card" class:running>
+      <span class="grow"><strong>Rest</strong> <span class="muted">{formatDuration(r.seconds)}</span></span>
+      {#if running}
+        <button class="icon-btn start" aria-label={timer.paused ? 'Resume rest' : 'Pause rest'} onclick={() => (timer.paused ? timer.resume() : timer.pause())}><Icon name={timer.paused ? 'play' : 'pause'} size={18} /></button>
+      {:else}
+        <button class="icon-btn start" aria-label="Start {formatDuration(r.seconds)} rest" onclick={() => startRest(r, label)}><Icon name="play" size={18} /></button>
+      {/if}
+    </div>
+  {/snippet}
+
   {#snippet dumbbellMark(ex: Exercise)}
     {#if w.results[ex.id]?.dumbbells}<span class="db-mark" title="Dumbbells: weight per dumbbell"><Icon name="dumbbell" size={14} /><span class="sr">, dumbbells</span></span>{/if}
   {/snippet}
@@ -398,11 +441,16 @@
              and the name sit centred against all of it. -->
         <div class="side">
         <div class="controls">
-        {#if done < sets && timer.owner !== ex.id}
+        {#if timer.owner === ex.id && timer.current}
+          <!-- Its timer is running: the start button becomes pause / resume, same size and place. -->
+          <button class="icon-btn start" aria-label={timer.paused ? `Resume ${ex.name}` : `Pause ${ex.name}`} onclick={() => (timer.paused ? timer.resume() : timer.pause())}>
+            <Icon name={timer.paused ? 'play' : 'pause'} size={18} />
+          </button>
+        {:else if done < sets}
           {#if ex.type === 'timed'}
             <button class="icon-btn start" aria-label="Start {ex.name}" onclick={() => runIntervals(w, ex, sets, ss)}><Icon name="play" size={18} /></button>
           {:else if ex.type === 'reps' && ex.measure === 'time'}
-            <button class="icon-btn start" aria-label="Start a {ex.name} timer" onclick={() => runHold(w, ex, sets, ss)}><Icon name="clock" size={18} /></button>
+            <button class="icon-btn start" aria-label="Start a {ex.name} hold" onclick={() => runHold(w, ex, sets, ss)}><Icon name="play" size={18} /></button>
           {/if}
         {/if}
         {#if recordsKg(ex) && !recordsWeights(ex)}
@@ -428,7 +476,7 @@
       {#if recordsText(ex)}
         {@const lastText = matchingText(last, ex)}
         <textarea class="record" rows="1" aria-label="{ex.name}: note for this workout" placeholder={lastText ? `Last time: ${lastText}` : 'Note: band, grip, variation…'}
-          value={r?.text ?? ''} oninput={(e) => { resultOf(w, ex.id).text = e.currentTarget.value; touch(w); }}></textarea>
+          value={typeof r?.recorded === 'string' ? r.recorded : ''} oninput={(e) => { const res = resultOf(w, ex.id); if (e.currentTarget.value) res.recorded = e.currentTarget.value; else delete res.recorded; touch(w); }}></textarea>
       {/if}
       {#if ex.type === 'activity'}
         {@const v = valueOf(w, ex) ?? 0}
@@ -448,16 +496,15 @@
   {#each w.items as item (item.id)}
     {#if item.type === 'superset'}
       <section class="superset" aria-label="Superset, {item.rounds} rounds">
-        <p class="ss-head"><Icon name="repeat" size={16} /> Superset · {item.rounds} rounds{item.restBetweenRounds ? ` · rest ${formatDuration(item.restBetweenRounds)}` : ''}</p>
-        {#each item.items as ex (ex.id)}{@render exercise(ex, item.rounds, item)}{/each}
+        <p class="ss-head"><Icon name="repeat" size={16} /> Superset · {item.rounds} rounds</p>
+        {#each item.items as step (step.id)}
+          {#if step.type === 'rest'}{@render restCard(step, 'Rest before the next exercise')}{:else}{@render exercise(step, item.rounds, item)}{/if}
+        {/each}
       </section>
+    {:else if item.type === 'rest'}
+      {@render restCard(item, 'Rest')}
     {:else}
       {@render exercise(item, item.type === 'activity' ? 1 : item.type === 'timed' ? item.reps : item.sets)}
-    {/if}
-    {#if item.restAfter}
-      <button class="rest-row" aria-label="Start {formatDuration(item.restAfter)} rest" onclick={() => timer.start([{ label: 'Rest', kind: 'rest', seconds: item.restAfter ?? 0 }])}>
-        <Icon name="clock" size={16} /> Rest {formatDuration(item.restAfter)} <span class="grow"></span><Icon name="play" size={14} />
-      </button>
     {/if}
   {:else}
     <div class="card"><p><strong>No exercises yet</strong></p><p class="muted">Add some with the edit button above.</p></div>
@@ -474,7 +521,7 @@
 
   <details class="more">
     <summary>Move or delete</summary>
-    <label class="field"><span>{w.status === 'done' ? 'Done on' : 'Planned for'}</span>
+    <label class="field"><span>{isComplete(w) ? 'Done on' : 'Planned for'}</span>
       <input type="date" value={w.date} onchange={(e) => { if (isISODate(e.currentTarget.value)) w.date = e.currentTarget.value; }} />
     </label>
     {#if w.scheduledDate && w.scheduledDate !== w.date}<p class="muted">Originally scheduled for {fmtDay(w.scheduledDate)}.</p>{/if}
@@ -486,13 +533,12 @@
     <div class="timer {timer.current.kind}" role="group" aria-label="Timer">
       <div class="grow">
         <span class="t-label">{timer.current.label}</span>
-        <span class="t-time" role="timer" aria-live="off">{fmtSecs(timer.remaining)}{#if timer.paused}<span class="t-paused"> paused</span>{/if}</span>
+        <span class="t-time" role="timer" aria-live="off">{fmtSecs(timer.remaining)}</span>
       </div>
       <button class="icon-btn pause" aria-label={timer.paused ? 'Resume timer' : 'Pause timer'} onclick={() => (timer.paused ? timer.resume() : timer.pause())}>
         <Icon name={timer.paused ? 'play' : 'pause'} />
       </button>
-      <button class="btn small" onclick={() => timer.add(15)}>+15 s</button>
-      <button class="btn small" onclick={() => timer.skip()}>Skip</button>
+      <button class="icon-btn" aria-label="Skip to the next part" onclick={() => timer.skip()}><Icon name="skip" /></button>
       <button class="icon-btn" aria-label="Stop timer" onclick={() => timer.stop()}><Icon name="x" /></button>
     </div>
   {/if}
@@ -542,7 +588,7 @@
   /* Activities: the short description follows the name on the same line. */
   .title.inline { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
   .title.inline h3 { flex: none; max-width: 60%; }
-  .title.inline .desc { flex: 1; min-width: 0; margin: 0; }
+  .title.inline .desc { flex: 1; min-width: 0; margin: 0; text-align: right; }
   .desc { margin: 0.0625rem 0 0; font-size: 0.8125rem; color: var(--muted); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* One small round button per exercise: tap to mark the whole exercise done. */
   .progress { flex: none; display: flex; align-items: center; }
@@ -556,9 +602,11 @@
   .adj { flex: none; width: 1.25rem; height: 2.75rem; padding: 0; border: none; background: none; color: var(--muted); font: inherit; font-size: 1.125rem; font-weight: 600; line-height: 1; cursor: pointer; }
   .adj:hover { color: var(--text); }
   .adj[aria-disabled='true'] { color: var(--line); pointer-events: none; }
-  .start { color: var(--accent); }
-  .ex.complete { border-color: var(--ok-line); }
-  .ex.running { border-color: var(--accent); }
+  /* Play / pause on cards: a round 40 px button with no hover change. */
+  .start, .controls .start { width: 2.5rem; height: 2.5rem; border-radius: 50%; color: var(--accent); }
+  .start:hover, .controls .start:hover { background: none; }
+  /* A timer running for this exercise: tinted green, like a running rest is tinted red. */
+  .ex.running { background: color-mix(in srgb, var(--ok-line) 18%, var(--card)); }
   /* How it felt, as a small dot after the name (set in the value sheet). */
   .feel-dot { display: inline-block; width: 0.5rem; height: 0.5rem; margin-right: 0.375rem; border-radius: 50%; vertical-align: 0.1em; }
   .feel-dot.easy { background: var(--ok); }
@@ -587,11 +635,12 @@
   .amount .num { font-size: 2rem; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1; }
   .amount .unit { color: var(--muted); font-size: 0.875rem; }
   .superset { border: 2px dashed #7f77dd; border-radius: 22px; padding: 0.5rem 0.5rem 0; margin-bottom: 0.5rem; }
+  /* Rest cards always carry the rest colour; a running one is filled with it too. */
+  .rest-card { display: flex; align-items: center; gap: 0.5rem; min-height: 3.25rem; padding: 0.25rem 0.5rem 0.25rem 1rem; box-shadow: inset 4px 0 0 var(--bad-line); }
+  .rest-card.running { background: color-mix(in srgb, var(--bad-line) 18%, var(--card)); }
+  .rest-card .grow { flex: 1; }
   .ss-head { display: flex; align-items: center; gap: 0.375rem; color: var(--accent); font-size: 0.8125rem; font-weight: 600; margin: 0 0.375rem 0.5rem; }
 
-  /* The rest between two exercises: starts by itself when the one above is finished, or on tap. */
-  .rest-row { display: flex; align-items: center; gap: 0.5rem; width: calc(100% - 2rem); min-height: 2.75rem; margin: 0 1rem 0.5rem; padding: 0 0.875rem; border: 2px dashed var(--line); border-radius: 99px; background: none; color: var(--muted); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer; }
-  .rest-row .grow { flex: 1; }
 
   .notes { margin-top: 1rem; }
   .add-note { display: block; margin: 0.5rem 0; padding: 0.5rem 0.25rem; min-height: 2.75rem; border: none; background: none; color: var(--muted); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer; }
@@ -613,12 +662,15 @@
   /* Green while working, red while resting: readable across the room. */
   .timer.work { background: var(--ok); color: var(--ok-ink); }
   .timer.rest { background: var(--bad); color: var(--bad-ink); }
-  .timer .btn { background: rgb(0 0 0 / 0.22); color: inherit; }
-  .timer .btn:hover { background: rgb(0 0 0 / 0.32); }
-  .timer .icon-btn { color: inherit; }
-  .timer .pause { background: rgb(0 0 0 / 0.22); }
-  .t-paused { font-size: 0.875rem; font-weight: 600; }
-  .timer .grow { display: grid; min-width: 0; }
+  /* The few seconds to get into position before a hold. */
+  .timer.prepare { background: var(--warn); color: var(--warn-ink); }
+  /* Every button on the bar: the same height, a dark wash over the bar colour and the bar's
+     dark text, so they read on green and red alike (the plain icon-button hover is too dark here). */
+  .timer .btn, .timer .icon-btn { min-height: 2.75rem; height: 2.75rem; background: rgb(0 0 0 / 0.22); color: inherit; }
+  .timer .btn:hover, .timer .icon-btn:hover { background: rgb(0 0 0 / 0.34); }
+  .timer .icon-btn { width: 2.75rem; }
+  /* The label and time take the free space, so the buttons sit together on the right. */
+  .timer .grow { flex: 1; display: grid; min-width: 0; }
   .t-label { font-size: 0.8125rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .t-time { font-size: 1.75rem; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.1; }
 </style>

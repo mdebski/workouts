@@ -5,7 +5,7 @@
   import AddButton from '../components/AddButton.svelte';
   import { db } from '../lib/state.svelte.ts';
   import { flatten, fmtRecorded, slotInfo, statusOf } from '../lib/core.ts';
-  import { addDays, fmtMonth, fmtWeekday, today as todayISO } from '../lib/dates.ts';
+  import { addDays, fmtMonth, fmtWeekday, today as todayISO, weekday } from '../lib/dates.ts';
   import type { Workout } from '../lib/types.ts';
 
   const today = todayISO();
@@ -26,6 +26,7 @@
     const slot = slotInfo(db, w);
     const parts: string[] = [];
     if (status === 'missed') parts.push('Missed');
+    if (status === 'partial') parts.push('Partly done');
     // A single exercise: show what was recorded, e.g. "42.5 kg", "5.4 km" or "1h 15min".
     const flat = flatten(w.items);
     if (flat.length === 1) {
@@ -58,7 +59,7 @@
     {#if i === 0 || date.endsWith('-01')}
       <li class="month" aria-hidden="true">{fmtMonth(date)}</li>
     {/if}
-    <li class="day" class:is-today={date === today} id={date === today ? 'today' : undefined}>
+    <li class="day" class:is-today={date === today} class:week-start={i > 0 && weekday(date) === 1} id={date === today ? 'today' : undefined}>
       <div class="date">
         <span>{date === today ? 'Today' : fmtWeekday(date)}</span>
         <b>{Number(date.slice(8))}</b>
@@ -91,6 +92,8 @@
   .days { list-style: none; margin: 0; padding: 0; }
   .month { position: sticky; top: 3.5rem; z-index: 2; background: var(--bg); padding: 0.5rem 0.25rem; font-size: 0.8125rem; font-weight: 600; color: var(--muted); }
   .day { display: flex; gap: 0.625rem; margin-bottom: 0.5rem; scroll-margin-top: 6rem; }
+  /* A thin line above each Monday separates the weeks. */
+  .day.week-start { border-top: 1px solid var(--line); padding-top: 0.5rem; }
   .date { width: 2.75rem; flex: none; text-align: center; font-size: 0.75rem; color: var(--muted); padding-top: 0.375rem; }
   .date b { display: block; font-size: 1.125rem; font-weight: 650; color: var(--text); border-radius: 10px; }
   .is-today .date { color: var(--accent); }
@@ -115,6 +118,8 @@
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 
   .done { border-color: var(--ok-line); }
+  /* Started but not finished: the done colour, dotted, like the partly-done circle. */
+  .partial { border: 2px dotted var(--ok-line); }
   .done .mark { color: var(--ok); }
   .planned { background: transparent; border: 2px dashed var(--line); }
   .today { background: var(--accent-deep); }

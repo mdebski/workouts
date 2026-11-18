@@ -2,12 +2,12 @@
   import { onMount, untrack } from 'svelte';
   import Icon from '../components/Icon.svelte';
   import { db } from '../lib/state.svelte.ts';
-  import { activityAmount, exerciseNames, fmtNum, fmtValues, recordsWeights, searchExercises, unitOf, type SearchEntry, type SearchSort } from '../lib/core.ts';
+  import { numberOf, numbersOf, textOf, activityAmount, exerciseNames, fmtNum, fmtValues, recordsWeights, searchExercises, unitOf, type SearchEntry, type SearchSort } from '../lib/core.ts';
   import { fmtDayAuto } from '../lib/dates.ts';
   import { formatDuration } from '../lib/duration.ts';
   import { router } from '../lib/router.svelte.ts';
 
-  const FEEL = { easy: 'Easy', hard: 'Hard', failed: 'Failed' } as const;
+  const FEEL = { easy: 'Easy', hard: 'Hard', failed: 'Not finished' } as const;
 
   let query = $state(untrack(() => router.route.query.get('q') ?? ''));
   let input = $state<HTMLInputElement>();
@@ -34,10 +34,10 @@
   function recorded({ ex, sets, result: r }: SearchEntry): string {
     const unit = unitOf(ex);
     const parts: string[] = [];
-    if (ex.type === 'activity') parts.push(`${fmtNum(r?.value ?? 0)} ${activityAmount(ex).unit}`);
-    else if (recordsWeights(ex) && r?.values?.some((v) => v !== null)) parts.push(`${fmtValues(r.values)} kg`);
-    else if (unit && r?.value !== undefined) parts.push(unit === 's' ? formatDuration(r.value) : `${fmtNum(r.value)} ${unit}`);
-    if (r?.text) parts.push(r.text);
+    if (ex.type === 'activity') parts.push(`${fmtNum(numberOf(r) ?? 0)} ${activityAmount(ex).unit}`);
+    else if (recordsWeights(ex) && numbersOf(r)?.some((v) => v !== null)) parts.push(`${fmtValues(numbersOf(r)!)} kg`);
+    else if (unit && numberOf(r) !== undefined) parts.push(unit === 's' ? formatDuration(numberOf(r)!) : `${fmtNum(numberOf(r)!)} ${unit}`);
+    if (textOf(r)) parts.push(textOf(r)!);
     if (ex.type !== 'activity') {
       const done = r?.setsDone ?? 0;
       if (done < sets) parts.push(`${done} of ${sets} ${ex.type === 'reps' ? 'sets' : 'rounds'}`);

@@ -2,7 +2,7 @@
   import JSON5 from 'json5';
   import Icon from '../components/Icon.svelte';
   import Sheet from '../components/Sheet.svelte';
-  import { db, mergeIn, replaceAll, snapshot } from '../lib/state.svelte.ts';
+  import { db, mergeIn, rememberEmoji, replaceAll, snapshot } from '../lib/state.svelte.ts';
   import { fmtNum, mergeData, migrate, type MergeSummary } from '../lib/core.ts';
   import type { Data } from '../lib/types.ts';
   import { today } from '../lib/dates.ts';
@@ -107,6 +107,15 @@
   }
 
   const built = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(import.meta.env.VITE_BUILD_TIME));
+  /** How long this start of the app took (recorded in main.ts). */
+  const startup = (() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('startup') ?? 'null') as { html: number; ready: number; fromCache?: boolean } | null;
+    } catch {
+      return null;
+    }
+  })();
+
   let updating = $state(false);
   let updateMessage = $state('');
 
@@ -135,6 +144,17 @@
       updating = false;
       updateMessage = "Couldn't check for a new version. Check your connection and try again.";
     }
+  }
+
+  let newIcon = $state('');
+
+  /** Adds each emoji typed into the box (several at once work too). */
+  function addIcon() {
+    const text = newIcon.trim();
+    if (!text) return;
+    const parts = 'Segmenter' in Intl ? [...new Intl.Segmenter().segment(text)].map((s) => s.segment).filter((s) => s.trim()) : [text];
+    for (const p of parts) rememberEmoji(p);
+    newIcon = '';
   }
 
   function saveSteps() {
@@ -170,8 +190,23 @@
 <h2>App version</h2>
 <div class="card">
   <p class="muted">Built {built}.</p>
+  {#if startup}<p class="muted">This start: page in {startup.html} ms{startup.fromCache ? ' (from the offline copy)' : ''}, app on screen after {startup.ready} ms.</p>{/if}
   <button class="btn wide update" onclick={updateApp} aria-disabled={updating}>{updating ? 'Updating…' : 'Update and reload'}</button>
   {#if updateMessage}<p class="muted" role="status">{updateMessage}</p>{/if}
+</div>
+
+<h2>Icons</h2>
+<div class="card">
+  <p class="muted">Quick choices when picking an icon. Any other emoji you use is added here.</p>
+  <ul class="icons">
+    {#each db.settings.emoji as e, i (e)}
+      <li><span class="icon" aria-hidden="true">{e}</span><button class="icon-btn small" aria-label="Remove {e} from the quick choices" onclick={() => db.settings.emoji.splice(i, 1)}><Icon name="x" size={14} /></button></li>
+    {/each}
+  </ul>
+  <form class="row add-icon" onsubmit={(e) => { e.preventDefault(); addIcon(); }}>
+    <label class="grow"><span class="sr">Emoji to add</span><input type="text" bind:value={newIcon} placeholder="Type or pick an emoji" autocomplete="off" /></label>
+    <button class="btn" type="submit">Add</button>
+  </form>
 </div>
 
 <h2>Weights</h2>
@@ -205,5 +240,10 @@
   /* The main way to back up gets a row of its own; Export and Import share the next one. */
   .share { flex: 1 0 100%; }
   .update { margin-top: 0.75rem; }
+  .icons { list-style: none; margin: 0.75rem 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.375rem; }
+  .icons li { display: flex; align-items: center; gap: 0.125rem; padding: 0 0.125rem 0 0.5rem; border-radius: 99px; background: var(--raise); }
+  .icons .icon { font-size: 1.25rem; }
+  .icons .icon-btn.small { width: 2rem; height: 2.25rem; color: var(--muted); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .card > p + p { margin-top: 0.5rem; }
 </style>

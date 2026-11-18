@@ -7,10 +7,12 @@
 //   Warm-up min           an activity: minutes are recorded when it's done
 //   Jumping jacks count   an activity: a count is recorded when it's done
 //   Run km                an activity: a distance in km is recorded when it's done
+//   Rest 90s              a rest of its own, with a timer
 //   Rows                  just a name: sets and reps copied from the defaults
 
 import { uid } from './core.ts';
-import type { Exercise, RepsExercise } from './types.ts';
+import { parseDuration } from './duration.ts';
+import type { Exercise, RepsExercise, Rest } from './types.ts';
 
 export type QuickDefaults = Pick<RepsExercise, 'sets' | 'reps' | 'repScheme' | 'measure' | 'restBetweenSets' | 'weightCount'>;
 
@@ -33,9 +35,15 @@ const RULES: [RegExp, (m: RegExpMatchArray, d: QuickDefaults) => Omit<Exercise, 
 
 const clamp = (n: number, max: number) => Math.min(max, Math.max(1, Math.round(n)));
 
-export function parseQuickLine(line: string, defaults: QuickDefaults): Exercise | undefined {
+export function parseQuickLine(line: string, defaults: QuickDefaults): Exercise | Rest | undefined {
   const text = line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '').trim();
   if (!text) return undefined;
+  // "Rest 90s", "rest: 2min": a rest of its own.
+  const rest = text.match(/^rest\b[\s:,–-]*(.+)$/i);
+  if (rest) {
+    const seconds = parseDuration(rest[1]);
+    if (seconds !== undefined && seconds > 0) return { id: uid(), type: 'rest', seconds: Math.min(3600, Math.round(seconds)) };
+  }
   for (const [pattern, build] of RULES) {
     const m = text.match(pattern);
     if (!m) continue;
@@ -50,6 +58,6 @@ export function parseQuickLine(line: string, defaults: QuickDefaults): Exercise 
   return { id: uid(), name: text.slice(0, 80), type: 'reps', ...defaults };
 }
 
-export function parseQuick(text: string, defaults: QuickDefaults): Exercise[] {
-  return text.split('\n').map((l) => parseQuickLine(l, defaults)).filter((e): e is Exercise => !!e);
+export function parseQuick(text: string, defaults: QuickDefaults): (Exercise | Rest)[] {
+  return text.split('\n').map((l) => parseQuickLine(l, defaults)).filter((e): e is Exercise | Rest => !!e);
 }

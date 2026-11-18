@@ -7,10 +7,12 @@ const programme: Programme = {
   schedule: { start: '2026-11-02', repeat: { kind: 'weekdays', days: [1, 3, 5] }, end: { kind: 'count', n: 14 } },
   items: [
     { id: 'a', type: 'reps', name: 'Pull-ups', sets: 4, reps: 6, measure: 'weight', restBetweenSets: 90 },
-    { id: 's', type: 'superset', rounds: 3, restBetweenRounds: 60, items: [
+    { id: 's', type: 'superset', rounds: 3, items: [
       { id: 'b', type: 'reps', name: 'Plank', sets: 1, reps: 1, measure: 'time' },
       { id: 'c', type: 'timed', name: 'Dead hang', reps: 6, workSec: 5, restSec: 5, trackWeight: false },
+      { id: 'r1', type: 'rest', seconds: 60 },
     ] },
+    { id: 'r2', type: 'rest', seconds: 120 },
     { id: 'd', type: 'activity', name: 'Warm-up', measure: 'time' },
   ],
 };
@@ -52,7 +54,19 @@ test('untrusted input is rebuilt and clamped', () => {
   assert.strictEqual('extra' in p, false);
   assert.deepEqual(p.schedule, { start: '2026-11-16', repeat: { kind: 'weekdays', days: [1, 5] }, end: { kind: 'never' } });
   const ex = p.items[0];
-  assert.deepEqual({ ...ex, id: '' }, { id: '', name: 'Squat', description: undefined, restAfter: undefined, type: 'reps', sets: 99, reps: 1, repScheme: undefined, measure: 'none', weightCount: undefined, restBetweenSets: undefined });
+  assert.deepEqual({ ...ex, id: '' }, { id: '', name: 'Squat', description: undefined, type: 'reps', sets: 99, reps: 1, repScheme: undefined, measure: 'none', weightCount: undefined, restBetweenSets: undefined });
+});
+
+test('rests from older links become rest items', () => {
+  const p = sanitiseProgramme({
+    name: 'Old', schedule: { start: '2026-11-16', repeat: { kind: 'interval', days: 1 }, end: { kind: 'never' } },
+    items: [
+      { type: 'reps', name: 'A', sets: 3, reps: 5, measure: 'none', restAfter: 90 },
+      { type: 'superset', rounds: 2, restBetweenRounds: 60, restAfter: 120, items: [{ type: 'reps', name: 'B', sets: 1, reps: 5, measure: 'none' }] },
+    ],
+  }, '2026-11-16');
+  const shape = p.items.map((it) => it.type === 'rest' ? `rest ${it.seconds}` : it.type === 'superset' ? `superset[${it.items.map((s) => s.type === 'rest' ? `rest ${s.seconds}` : s.name).join(', ')}]` : it.name);
+  assert.deepEqual(shape, ['A', 'rest 90', 'superset[B, rest 60]', 'rest 120']);
 });
 
 test('broken links are rejected', async () => {

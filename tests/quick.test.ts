@@ -27,12 +27,14 @@ test('varying reps', () => {
 test('a bare name takes the defaults', () => {
   assert.deepEqual(p('Rows'), { name: 'Rows', type: 'reps', ...d });
   assert.deepEqual(p('  - Face pulls'), { name: 'Face pulls', type: 'reps', ...d });
-  assert.deepEqual(p('2. Curls 3x8').name, 'Curls');
+  assert.deepEqual((p('2. Curls 3x8') as { name: string }).name, 'Curls');
+  assert.deepEqual(p('Rest 90s'), { type: 'rest', seconds: 90 });
+  assert.deepEqual(p('rest: 2min'), { type: 'rest', seconds: 120 });
 });
 
 test('several lines, blanks skipped, values clamped', () => {
   const list = parseQuick('Pull-ups 4x6\n\n   \nRows\nSquats 500x5000', d);
-  assert.deepEqual(list.map((e) => e.name), ['Pull-ups', 'Rows', 'Squats']);
+  assert.deepEqual(list.map((e) => (e.type === 'rest' ? 'rest' : e.name)), ['Pull-ups', 'Rows', 'Squats']);
   assert.strictEqual(new Set(list.map((e) => e.id)).size, 3);
   assert.deepEqual([(list[2] as { sets: number }).sets, (list[2] as { reps: number }).reps], [99, 999]);
   assert.strictEqual(parseQuickLine('', d), undefined);

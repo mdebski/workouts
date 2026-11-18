@@ -1,17 +1,29 @@
 <!doctype html>
-<html lang="en-GB">
+<html lang="en-GB" style="background: #17161f">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#17161f" />
     <meta name="description" content="Plan programmes and track workouts, offline." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Workouts" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <title>Workouts</title>
+    <!-- Painted before any script loads, so starting up shows the icon instead of a blank screen. -->
+    <style>
+      html, body { margin: 0; background: #17161f; color: #f1eff8; }
+      .splash { position: fixed; inset: 0; display: grid; place-items: center; }
+      .splash img { width: 96px; height: 96px; border-radius: 22px; animation: splash-pulse 1.4s ease-in-out infinite; }
+      @keyframes splash-pulse { 50% { opacity: 0.55; } }
+      @media (prefers-reduced-motion: reduce) { .splash img { animation: none; } }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app"><div class="splash" aria-label="Loading"><img src="./icon.svg" alt="" /></div></div>
+    <script>window.__startedAt = performance.now();</script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

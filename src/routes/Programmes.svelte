@@ -89,7 +89,8 @@
     const mine = db.workouts.filter((w) => w.programmeId === p.id);
     const count = (s: string) => mine.filter((w) => statusOf(w, today) === s).length;
     const left = count('planned') + count('today');
-    return `${count('done')} done · ${count('missed')} missed · ${left} to go`;
+    const partial = count('partial');
+    return `${count('done')} done${partial ? ` · ${partial} partly done` : ''} · ${count('missed')} missed · ${left} to go`;
   }
 </script>
 
@@ -101,11 +102,13 @@
 </header>
 
 {#snippet card(p: Programme)}
-  <div class="card">
+  <div class="card prog">
     <div class="row">
       <span class="emoji" aria-hidden="true">{p.emoji}</span>
       <div class="grow">
-        <strong>{p.name}</strong>
+        <!-- The name's link covers the whole card, so tapping anywhere opens the history;
+             the buttons sit above it and keep their own actions. -->
+        <a class="open" href="#/p/{p.id}/history"><strong>{p.name}</strong></a>
         <p class="muted">{summary(p)}</p>
         <p class="muted">{progress(p)}</p>
       </div>
@@ -155,6 +158,12 @@
 </Sheet>
 
 <style>
+  .prog { position: relative; cursor: pointer; }
+  .prog:hover { background: var(--raise); }
+  .open::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+  .open:focus-visible { outline: none; }
+  .prog:has(.open:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .prog .actions, .prog .shared, .prog input { position: relative; z-index: 1; }
   .from-link { margin-bottom: 0.75rem; }
   textarea { word-break: break-all; resize: none; }
   .actions { margin-top: 0.75rem; flex-wrap: wrap; }

@@ -1,6 +1,7 @@
 export interface Phase {
   label: string;
-  kind: 'work' | 'rest';
+  /** prepare: a short count-in before work (e.g. getting into a hold). */
+  kind: 'prepare' | 'work' | 'rest';
   seconds: number;
   onEnd?: () => void;
 }

@@ -71,6 +71,12 @@ export function mergeIn(data: Data): MergeSummary {
   return summary;
 }
 
+/** Adds an icon to the quick choices if it isn't there yet (it was picked from the keyboard). */
+export function rememberEmoji(emoji: string): void {
+  const e = emoji.trim();
+  if (e && !db.settings.emoji.includes(e)) db.settings.emoji.push(e);
+}
+
 export function replaceAll(data: Data): void {
   db.programmes = data.programmes;
   db.workouts = data.workouts;
@@ -84,7 +90,7 @@ export function blankProgramme(): Programme {
   return {
     id: uid(),
     name: '',
-    emoji: '💪',
+    emoji: '🏋️',
     items: [],
     schedule: { start: today(), repeat: { kind: 'weekdays', days: [1, 3, 5] }, end: { kind: 'count', n: 12 } },
     archived: false,
@@ -92,5 +98,5 @@ export function blankProgramme(): Programme {
 }
 
 export function blankWorkout(date: string): Workout {
-  return { id: uid(), name: '', emoji: '🏃', date, status: 'planned', items: [] as Item[], results: {} };
+  return { id: uid(), name: '', emoji: '🏃', date, items: [] as Item[], results: {} };
 }
