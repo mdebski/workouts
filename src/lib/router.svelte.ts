@@ -24,9 +24,13 @@ export const router = $state<{ route: Route }>({ route: parse(location.hash) });
 
 const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+/** Where each screen was scrolled to when you left it, so a screen can put you back there. */
+export const scrollMemory = new Map<Route['name'], number>();
+
 async function apply(): Promise<void> {
+  scrollMemory.set(router.route.name, scrollY);
   router.route = parse(location.hash);
-  // Start each screen at the top (the agenda then scrolls itself to today).
+  // Start each screen at the top (the agenda then restores its place, or scrolls to today).
   scrollTo(0, 0);
   await tick();
   // View transitions don't manage focus: move it to the new screen's heading.

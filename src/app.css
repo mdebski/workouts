@@ -17,6 +17,8 @@
   --bad: #f09595;
   --bad-line: #e24b4a;
   --bad-ink: #501313;
+  /* Background behind today's row in the agenda. */
+  --today-tint: rgb(175 169 236 / 0.20);
   --radius: 16px;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 100%;

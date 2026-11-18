@@ -1,7 +1,7 @@
 import { assert, test } from 'vitest';
 import { addDays, diffDays, weekday } from '../src/lib/dates.ts';
 import { describeEnd, describeRepeat, occurrences } from '../src/lib/schedule.ts';
-import { copyValues, deleteProgramme, describe, isComplete, fmtRecorded, mergeData, exerciseNames, searchExercises, fmtValues, valuesOf, emptyData, flatten, migrate, neighbours, previousDone, slotInfo, statusOf, syncProgramme, topUp, HORIZON_DAYS } from '../src/lib/core.ts';
+import { copyValues, deleteProgramme, deleteProgrammeAndWorkouts, describe, isComplete, fmtRecorded, mergeData, exerciseNames, searchExercises, fmtValues, valuesOf, emptyData, flatten, migrate, neighbours, previousDone, slotInfo, statusOf, syncProgramme, topUp, HORIZON_DAYS } from '../src/lib/core.ts';
 import type { Data, Exercise, Item, Programme, Schedule, Workout } from '../src/lib/types.ts';
 
 const take = <T>(g: Iterable<T>, n: number) => { const out: T[] = []; for (const v of g) { if (out.length >= n) break; out.push(v); } return out; };
@@ -142,6 +142,15 @@ test('archiving and deleting', () => {
   deleteProgramme(d, 'p1', '2026-11-09');
   assert.strictEqual(d.programmes.length, 0);
   assert.strictEqual(d.workouts.length, 1, 'only completed history survives');
+});
+
+test('deleting a programme with all its workouts', () => {
+  const d = withProgramme(programme(mwf), '2026-11-02');
+  finish(mine(d)[0]);
+  d.workouts.push({ id: 'solo', date: '2026-11-03', name: 'x', emoji: 'x', items: [], results: {} });
+  deleteProgrammeAndWorkouts(d, 'p1');
+  assert.strictEqual(d.programmes.length, 0);
+  assert.deepEqual(d.workouts.map((w) => w.id), ['solo'], 'finished ones go too; other workouts stay');
 });
 
 test('previous/next and copying values', () => {

@@ -5,8 +5,8 @@
   import Fold from '../components/Fold.svelte';
   import EmojiPicks from '../components/EmojiPicks.svelte';
   import { describeEnd, describeRepeat } from '../lib/schedule.ts';
-  import { db, rememberEmoji, blankProgramme, blankWorkout, getProgramme, getWorkout, removeProgramme, removeWorkout, saveProgramme, saveWorkout } from '../lib/state.svelte.ts';
-  import { clone, flatten } from '../lib/core.ts';
+  import { db, rememberEmoji, blankProgramme, blankWorkout, getProgramme, getWorkout, removeProgramme, removeProgrammeAndWorkouts, removeWorkout, saveProgramme, saveWorkout } from '../lib/state.svelte.ts';
+  import { clone, flatten, isLogged } from '../lib/core.ts';
   import { go } from '../lib/router.svelte.ts';
   import { isISODate, today } from '../lib/dates.ts';
   import type { Item, Programme, Result, Schedule, Workout } from '../lib/types.ts';
@@ -124,6 +124,14 @@
       go('/');
     }
   }
+
+  function removeAll() {
+    const n = db.workouts.filter((w) => w.programmeId === id && isLogged(w)).length;
+    const done = n ? ` including ${n} finished one${n === 1 ? '' : 's'}` : '';
+    if (!confirm(`Delete "${name}" and all its workouts${done}? This can't be undone.`)) return;
+    removeProgrammeAndWorkouts(id);
+    go('/programmes');
+  }
 </script>
 
 <!-- Esc leaves the form without saving, like the ✕ button; an open sheet takes Esc first. -->
@@ -217,6 +225,7 @@
       <label class="check"><input type="checkbox" bind:checked={archived} /> Archived (stops planning new workouts)</label>
     {/if}
     {#if !isNew}<button type="button" class="btn danger wide" onclick={remove}>Delete {isProgramme ? 'programme' : 'workout'}</button>{/if}
+    {#if isProgramme && !isNew}<button type="button" class="btn danger wide" onclick={removeAll}>Delete programme and all its workouts</button>{/if}
   </form>
 {/if}
 

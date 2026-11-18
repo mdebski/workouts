@@ -1,4 +1,4 @@
-import { emptyData, mergeData, migrate, type MergeSummary, syncProgramme, topUp, deleteProgramme, uid, clone } from './core.ts';
+import { emptyData, mergeData, migrate, type MergeSummary, syncProgramme, topUp, deleteProgramme, deleteProgrammeAndWorkouts, uid, clone } from './core.ts';
 import { today } from './dates.ts';
 import type { Data, Item, Programme, Workout } from './types.ts';
 
@@ -50,6 +50,10 @@ export function saveProgramme(p: Programme): void {
 
 export function removeProgramme(id: string): void {
   deleteProgramme(db, id, today());
+}
+
+export function removeProgrammeAndWorkouts(id: string): void {
+  deleteProgrammeAndWorkouts(db, id);
 }
 
 export function saveWorkout(w: Workout): void {

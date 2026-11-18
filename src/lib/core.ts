@@ -543,3 +543,9 @@ export function deleteProgramme(data: Data, id: string, today: ISODate): void {
   data.workouts = data.workouts.filter((w) => w.programmeId !== id || isLogged(w) || !!w.startedAt);
   data.programmes = data.programmes.filter((p) => p.id !== id);
 }
+
+/** Deletes a programme and every workout it made, finished ones included. */
+export function deleteProgrammeAndWorkouts(data: Data, id: string): void {
+  data.workouts = data.workouts.filter((w) => w.programmeId !== id);
+  data.programmes = data.programmes.filter((p) => p.id !== id);
+}

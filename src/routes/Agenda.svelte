@@ -1,16 +1,27 @@
+<script lang="ts" module>
+  // How far the list reaches, kept while the app is open so coming back restores the same list.
+  let keptPast = 14;
+  let keptFuture = 42;
+</script>
+
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { scrollMemory } from '../lib/router.svelte.ts';
   import Icon from '../components/Icon.svelte';
   import MainTabs from '../components/MainTabs.svelte';
   import AddButton from '../components/AddButton.svelte';
   import { db } from '../lib/state.svelte.ts';
-  import { flatten, fmtRecorded, slotInfo, statusOf } from '../lib/core.ts';
+  import { flatten, fmtRecorded, hasProgress, slotInfo, statusOf } from '../lib/core.ts';
   import { addDays, fmtMonth, fmtWeekday, today as todayISO, weekday } from '../lib/dates.ts';
   import type { Workout } from '../lib/types.ts';
 
   const today = todayISO();
-  let pastDays = $state(14);
-  let futureDays = $state(42);
+  let pastDays = $state(keptPast);
+  let futureDays = $state(keptFuture);
+  $effect(() => {
+    keptPast = pastDays;
+    keptFuture = futureDays;
+  });
 
   const byDate = $derived.by(() => {
     const map = new Map<string, Workout[]>();
@@ -31,7 +42,10 @@
     const flat = flatten(w.items);
     if (flat.length === 1) {
       const recorded = fmtRecorded(flat[0].ex, w.results[flat[0].ex.id]);
+      const r = w.results[flat[0].ex.id];
       if (recorded) parts.push(recorded);
+      // Nothing recorded but some sets ticked, and not finished: how far it got, e.g. "3/6 sets".
+      else if (status !== 'done' && flat[0].sets > 1 && (r?.setsDone ?? 0) > 0) parts.push(`${r!.setsDone}/${flat[0].sets} sets`);
       else if (!slot) parts.push(flat[0].ex.type === 'activity' ? 'Activity' : 'One-off');
       return parts.join(' · ');
     }
@@ -39,7 +53,12 @@
     return parts.join(' · ');
   }
 
-  onMount(() => document.getElementById('today')?.scrollIntoView({ block: 'start' }));
+  // Back from a workout (or another screen): the same place as before. First time: today.
+  onMount(() => {
+    const y = scrollMemory.get('agenda');
+    if (y !== undefined) scrollTo(0, y);
+    else document.getElementById('today')?.scrollIntoView({ block: 'start' });
+  });
 </script>
 
 <header class="bar main">
@@ -67,7 +86,7 @@
       <div class="list">
         {#each list as w (w.id)}
           {@const status = statusOf(w, today)}
-          <a class="w {status}" href="#/w/{w.id}">
+          <a class="w {status}" class:started={status !== 'done' && hasProgress(w)} href="#/w/{w.id}">
             <span class="emoji" aria-hidden="true">{w.emoji}</span>
             <span class="text">
               <span class="name">{w.name}</span>
@@ -96,6 +115,8 @@
   .day.week-start { border-top: 1px solid var(--line); padding-top: 0.5rem; }
   .date { width: 2.75rem; flex: none; text-align: center; font-size: 0.75rem; color: var(--muted); padding-top: 0.375rem; }
   .date b { display: block; font-size: 1.125rem; font-weight: 650; color: var(--text); border-radius: 10px; }
+  /* Today's row: a faint tint behind the date and its workouts, with some room above and below. */
+  .day.is-today { background: var(--today-tint); border: none; border-radius: var(--radius); padding: 0.375rem; margin: 0.75rem -0.375rem; }
   .is-today .date { color: var(--accent); }
   .is-today .date b { background: var(--accent); color: var(--accent-ink); }
   /* Two workouts side by side; a day with one leaves the other half empty. */
@@ -118,13 +139,12 @@
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 
   .done { border-color: var(--ok-line); }
-  /* Started but not finished: the done colour, dotted, like the partly-done circle. */
-  .partial { border: 2px dotted var(--ok-line); }
   .done .mark { color: var(--ok); }
   .planned { background: transparent; border: 2px dashed var(--line); }
-  .today { background: var(--accent-deep); }
-  .today .muted { color: #dcd9f8; }
-  .today .emoji { background: #534ab7; }
+  /* Today, not started yet: a plain solid grey border; the row's tint marks the day. */
+  .today { border-color: var(--line); }
+  /* Started but not finished, on any day (a set ticked or a value entered): the done colour, dotted. */
+  .partial, .started { border: 2px dotted var(--ok-line); }
   /* Missed: red border and a slash across the card. */
   .missed {
     border-color: var(--bad-line);

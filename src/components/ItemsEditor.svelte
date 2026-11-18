@@ -44,6 +44,7 @@
   let inSuperset = $state(false);
   let isNew = $state(true);
   let restOpen = $state(false);
+  let notesOpen = $state(false);
   let error = $state('');
   let nameInput = $state<HTMLInputElement>();
   /** The recorded value being edited in the sheet (workouts only), one field per kind of input. */
@@ -60,6 +61,7 @@
     inSuperset = superset;
     isNew = true;
     restOpen = false;
+    notesOpen = false;
     error = '';
     draft = blank('reps', { id: uid(), name: '' });
     draftResult = {};
@@ -72,6 +74,7 @@
     inSuperset = superset;
     isNew = false;
     restOpen = false;
+    notesOpen = false;
     error = '';
     draft = clone($state.snapshot(from[i])) as Exercise;
     draftResult = toDraft(results?.[draft.id]);
@@ -388,7 +391,13 @@
         <label class="field"><span>Between sets</span><DurationInput bind:value={draft.restBetweenSets} placeholder="90s, 2min" /></label>
       </details>
     {/if}
-    <label class="field"><span>Notes (optional)</span><input type="text" bind:value={draft.description} autocomplete="off" /></label>
+    <!-- Notes only take space once there are some, or you ask to add them, as in the workout. -->
+    {#if draft.description || notesOpen}
+      <!-- svelte-ignore a11y_autofocus -->
+      <label class="field"><span>Notes</span><input type="text" bind:value={draft.description} autocomplete="off" autofocus={notesOpen && !draft.description} /></label>
+    {:else}
+      <button type="button" class="add-note" onclick={() => (notesOpen = true)}>Notes +</button>
+    {/if}
 
     <div class="row">
       {#if isNew}
@@ -449,4 +458,6 @@
 
   textarea { resize: vertical; min-height: 8rem; }
   .preview { list-style: none; margin: 0.75rem 0; padding: 0.75rem; background: var(--bg); border-radius: var(--radius); display: grid; gap: 0.25rem; }
+  .add-note { display: block; margin: -0.25rem 0 0.5rem; padding: 0.5rem 0.25rem; min-height: 2.75rem; border: none; background: none; color: var(--muted); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer; }
+  .add-note:hover { color: var(--text); }
 </style>
