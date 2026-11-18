@@ -1,7 +1,7 @@
 import { assert, test } from 'vitest';
 import { addDays, diffDays, isoWeek, weekday } from '../src/lib/dates.ts';
 import { describeEnd, describeRepeat, occurrences } from '../src/lib/schedule.ts';
-import { copyValues, deleteProgramme, deleteProgrammeAndWorkouts, describe, isComplete, fmtRecorded, mergeData, exerciseNames, searchExercises, fmtValues, valuesOf, emptyData, flatten, migrate, neighbours, previousDone, slotInfo, statusOf, syncProgramme, topUp, HORIZON_DAYS } from '../src/lib/core.ts';
+import { copyValues, deleteProgramme, programmeBackup, deleteProgrammeAndWorkouts, describe, isComplete, fmtRecorded, mergeData, exerciseNames, searchExercises, fmtValues, valuesOf, emptyData, flatten, migrate, neighbours, previousDone, slotInfo, statusOf, syncProgramme, topUp, HORIZON_DAYS } from '../src/lib/core.ts';
 import type { Data, Exercise, Item, Programme, Schedule, Workout } from '../src/lib/types.ts';
 
 const take = <T>(g: Iterable<T>, n: number) => { const out: T[] = []; for (const v of g) { if (out.length >= n) break; out.push(v); } return out; };
@@ -367,4 +367,18 @@ test('ISO week numbers', () => {
   assert.strictEqual(isoWeek('2026-01-01'), 1, 'a Thursday starts week 1');
   assert.strictEqual(isoWeek('2027-01-01'), 53, 'a Friday still belongs to the last week');
   assert.strictEqual(isoWeek('2024-12-30'), 1, 'a Monday can start next year\'s week 1');
+});
+
+test('a programme backup holds its workouts so far and imports into empty data', () => {
+  const p = programme(mwf);
+  const d = withProgramme(p, '2026-11-02');
+  finish(mine(d)[0]);
+  d.workouts.push({ id: 'solo', date: '2026-11-03', name: 'x', emoji: 'x', items: [], results: {} });
+  const backup = JSON.parse(JSON.stringify(programmeBackup(d, 'p1', '2026-11-09')));
+  assert.deepEqual(backup.workouts.map((w: Workout) => w.scheduledDate), ['2026-11-02', '2026-11-04', '2026-11-06'], 'up to today, nothing else');
+  const fresh = emptyData();
+  mergeData(fresh, migrate(backup));
+  syncProgramme(fresh, fresh.programmes[0], '2026-11-09');
+  assert.strictEqual(fresh.workouts.length, 14, 'future workouts are planned again');
+  assert.strictEqual(fresh.workouts.filter((w) => isComplete(w)).length, 1, 'the done one came across');
 });

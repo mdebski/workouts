@@ -68,9 +68,12 @@ export function removeWorkout(id: string): void {
 
 export function mergeIn(data: Data): MergeSummary {
   const local = snapshot();
+  const before = new Set(local.programmes.map((p) => p.id));
   const summary = mergeData(local, data);
   db.programmes = local.programmes;
   db.workouts = local.workouts;
+  // A programme that is new here gets its schedule laid out, so its future workouts appear too.
+  for (const p of db.programmes) if (!before.has(p.id)) syncProgramme(db, p, today());
   topUp(db, today());
   return summary;
 }

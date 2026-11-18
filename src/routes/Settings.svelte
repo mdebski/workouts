@@ -1,5 +1,6 @@
 <script lang="ts">
   import JSON5 from 'json5';
+  import { downloadJSON } from '../lib/download.ts';
   import Icon from '../components/Icon.svelte';
   import Sheet from '../components/Sheet.svelte';
   import { db, mergeIn, rememberEmoji, replaceAll, snapshot } from '../lib/state.svelte.ts';
@@ -15,30 +16,23 @@
   let persisted = $state<boolean | undefined>();
   navigator.storage?.persisted?.().then((p) => (persisted = p));
 
-  const backupText = () => JSON5.stringify(snapshot(), null, 2);
+  // Backups are plain JSON, a type phones recognise, so every share target (Gmail too) takes them.
+  const backupText = () => JSON.stringify(snapshot(), null, 2);
 
   function exportData() {
-    const blob = new Blob([backupText()], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `workouts-${today()}.json5`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    downloadJSON(`workouts-${today()}.json`, snapshot());
     message = 'Backup saved to your downloads.';
     error = '';
   }
 
   /**
-   * The backup as a file the share sheet accepts. Browsers only share some file
-   * types (Chrome on Android refuses unfamiliar ones), so try the natural name
-   * first and fall back to plain text, which every share target takes. Import
-   * reads the contents, so the name and type don't matter there.
+   * The backup as a file the share sheet accepts: JSON, or plain text if a browser
+   * refuses that. Import reads the contents, so the name and type don't matter there.
    */
   function shareableFile(): File | undefined {
     const text = backupText();
     const base = `workouts-${today()}`;
     const candidates = [
-      new File([text], `${base}.json5`, { type: 'application/json' }),
       new File([text], `${base}.json`, { type: 'application/json' }),
       new File([text], `${base}.txt`, { type: 'text/plain' }),
     ];
@@ -66,6 +60,7 @@
     if (!file) return;
     message = error = '';
     try {
+      // JSON5 reads plain JSON as well as backups saved as .json5 by older versions.
       pending = migrate(JSON5.parse(await file.text()));
       // Dry run on a copy, so the sheet can say what adding would do.
       preview = mergeData(snapshot(), structuredClone(pending));
@@ -175,8 +170,8 @@
   <div class="row actions">
     {#if canShareFiles}<button class="btn primary share" onclick={shareData}>Share backup</button>{/if}
     <button class="btn grow" onclick={exportData}>Export</button>
-    <!-- No accept filter: iOS greys out files whose type it doesn't know, and .json5 is one of
-         them. The contents are checked on import instead. -->
+    <!-- No accept filter: iOS greys out files whose type it doesn't know, such as older .json5
+         backups. The contents are checked on import instead. -->
     <label class="btn grow">Import<input type="file" onchange={importData} hidden /></label>
   </div>
   {#if message}<p class="muted" role="status">{message}</p>{/if}

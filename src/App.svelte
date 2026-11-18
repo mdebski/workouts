@@ -15,14 +15,13 @@
   const route = $derived(router.route);
 
   // Swipe left / right: between the two main tabs, and between workouts of the same name.
-  // Swipe up at the bottom of a workout: back to the agenda.
   const gestures = $derived.by((): SwipeHandlers => {
     if (route.name === 'agenda') return { left: () => go('/programmes') };
     if (route.name === 'programmes') return { right: () => go('/') };
     if (route.name === 'workout') {
       const w = getWorkout(route.id!);
       const { prev, next } = w ? neighbours(db, w) : {};
-      return { left: next && (() => go(`/w/${next.id}`)), right: prev && (() => go(`/w/${prev.id}`)), up: () => go('/') };
+      return { left: next && (() => go(`/w/${next.id}`)), right: prev && (() => go(`/w/${prev.id}`)) };
     }
     return {};
   });

@@ -517,15 +517,16 @@
   {#if timer.current}
     <div class="spacer"></div>
     <div class="timer {timer.current.kind}" role="group" aria-label="Timer">
-      <div class="grow">
-        <span class="t-label">{timer.current.label}</span>
-        <span class="t-time" role="timer" aria-live="off">{fmtSecs(timer.remaining)}</span>
-      </div>
+      <!-- What it is on its own line; below it the time, with the buttons beside it. -->
+      <span class="t-label">{timer.current.label}</span>
+      <div class="t-row">
+      <span class="t-time" role="timer" aria-live="off">{fmtSecs(timer.remaining)}</span>
       <button class="icon-btn pause" aria-label={timer.paused ? 'Resume timer' : 'Pause timer'} onclick={() => (timer.paused ? timer.resume() : timer.pause())}>
         <Icon name={timer.paused ? 'play' : 'pause'} size={26} />
       </button>
       <button class="icon-btn" aria-label="Skip to the next part" onclick={() => timer.skip()}><Icon name="skip" size={26} /></button>
       <button class="icon-btn" aria-label="Stop timer" onclick={() => timer.stop()}><Icon name="x" size={26} /></button>
+      </div>
     </div>
   {/if}
 
@@ -636,12 +637,12 @@
   .more summary { min-height: 2.75rem; display: flex; align-items: center; cursor: pointer; padding: 0 0.25rem; }
   .more > :not(summary) { margin-top: 0.5rem; }
 
-  .spacer { height: 8.5rem; }
+  .spacer { height: 10rem; }
   .timer {
     position: fixed; z-index: 10; left: 50%; translate: -50% 0;
     bottom: calc(0.75rem + env(safe-area-inset-bottom)); width: min(calc(100% - 1.5rem), 32.5rem);
-    display: flex; align-items: center; gap: 0.5rem;
-    padding: 1rem 0.75rem 1rem 1.25rem; border-radius: 26px;
+    display: grid; gap: 0.25rem;
+    padding: 0.875rem 0.75rem 0.75rem 1.25rem; border-radius: 26px;
     background: var(--accent-deep); color: var(--text);
     box-shadow: 0 6px 24px rgb(0 0 0 / 0.5);
   }
@@ -655,8 +656,9 @@
   .timer .btn, .timer .icon-btn { min-height: 3.25rem; height: 3.25rem; background: rgb(0 0 0 / 0.22); color: inherit; }
   .timer .btn:hover, .timer .icon-btn:hover { background: rgb(0 0 0 / 0.34); }
   .timer .icon-btn { width: 3.25rem; }
-  /* The label and time take the free space, so the buttons sit together on the right. */
-  .timer .grow { flex: 1; display: grid; min-width: 0; }
+  /* The time takes the free space, so the buttons sit together on the right. */
+  .t-row { display: flex; align-items: center; gap: 0.5rem; }
+  .t-row .t-time { flex: 1; min-width: 0; }
   .t-label { font-size: 1rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .t-time { font-size: 3rem; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.05; }
 </style>

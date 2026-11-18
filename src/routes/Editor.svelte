@@ -5,8 +5,9 @@
   import Fold from '../components/Fold.svelte';
   import EmojiPicks from '../components/EmojiPicks.svelte';
   import { describeEnd, describeRepeat } from '../lib/schedule.ts';
-  import { db, rememberEmoji, blankProgramme, blankWorkout, getProgramme, getWorkout, removeProgramme, removeProgrammeAndWorkouts, removeWorkout, saveProgramme, saveWorkout } from '../lib/state.svelte.ts';
-  import { clone, flatten, isLogged } from '../lib/core.ts';
+  import { db, rememberEmoji, blankProgramme, blankWorkout, getProgramme, getWorkout, removeProgramme, removeProgrammeAndWorkouts, removeWorkout, saveProgramme, saveWorkout, snapshot } from '../lib/state.svelte.ts';
+  import { clone, flatten, isLogged, programmeBackup } from '../lib/core.ts';
+  import { downloadJSON, slug } from '../lib/download.ts';
   import { go } from '../lib/router.svelte.ts';
   import { isISODate, today } from '../lib/dates.ts';
   import type { Item, Programme, Result, Schedule, Workout } from '../lib/types.ts';
@@ -128,6 +129,13 @@
     }
   }
 
+  /** The saved programme and its workouts so far, as a file for Settings → Import. */
+  function exportProgramme() {
+    const p = getProgramme(id);
+    if (!p) return;
+    downloadJSON(`programme-${slug(p.name)}-${today()}.json`, programmeBackup(snapshot(), id, today()));
+  }
+
   function removeAll() {
     const n = db.workouts.filter((w) => w.programmeId === id && isLogged(w)).length;
     const done = n ? ` including ${n} finished one${n === 1 ? '' : 's'}` : '';
@@ -227,6 +235,10 @@
       <p class="muted note">Saving lays out the schedule again from its start date: planned and missed workouts are replaced. Done and partly done ones stay as they are.</p>
       <label class="check"><input type="checkbox" bind:checked={archived} /> Archived (stops planning new workouts)</label>
     {/if}
+    {#if isProgramme && !isNew}
+      <button type="button" class="btn wide export" onclick={exportProgramme}>Export programme and its workouts</button>
+      <p class="muted note">Saves the programme as last saved, with every workout up to today, as a file you can bring back with Import in Settings.</p>
+    {/if}
     {#if !isNew}<button type="button" class="btn danger wide" onclick={remove}>Delete {isProgramme ? 'programme' : 'workout'}</button>{/if}
     {#if isProgramme && !isNew}<button type="button" class="btn danger wide" onclick={removeAll}>Delete programme and all its workouts</button>{/if}
   </form>
@@ -240,6 +252,7 @@
   .card fieldset:last-child, .card .field:last-child { margin-bottom: 0; }
   .save { margin: 1rem 0; }
   .danger + .danger { margin-top: 0.75rem; }
+  .export { margin-top: 0.5rem; }
   .note { margin-bottom: 0.75rem; }
   .check { display: flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; margin-bottom: 0.75rem; }
   .check input { width: 1.25rem; height: 1.25rem; }

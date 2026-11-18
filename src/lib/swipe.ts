@@ -7,12 +7,9 @@ export interface SwipeHandlers {
   left?: () => void;
   /** Finger moved left to right: go to the previous thing. */
   right?: () => void;
-  /** Finger moved up, starting with the page already scrolled to the bottom (so it isn't a scroll). */
-  up?: () => void;
 }
 
 const MIN_DISTANCE = 70; // px
-const UP_DISTANCE = 100; // px
 const MAX_TIME = 700; // ms
 const EDGE = 24; // px; swipes from the screen edge belong to the system (e.g. back on iOS)
 /** Places where a sideways drag means something else. */
@@ -20,7 +17,7 @@ const IGNORE = 'input, textarea, select, dialog, [data-noswipe]';
 
 export function swipe(node: HTMLElement, handlers: SwipeHandlers) {
   let current = handlers;
-  let start: { x: number; y: number; t: number; atBottom: boolean } | undefined;
+  let start: { x: number; y: number; t: number } | undefined;
 
   const scrollsSideways = (el: Element | null): boolean => {
     for (; el && el !== node; el = el.parentElement) {
@@ -36,8 +33,7 @@ export function swipe(node: HTMLElement, handlers: SwipeHandlers) {
     const target = e.target as Element;
     if (t.clientX < EDGE || t.clientX > innerWidth - EDGE) return;
     if (target.closest(IGNORE) || scrollsSideways(target)) return;
-    const atBottom = scrollY + innerHeight >= document.documentElement.scrollHeight - 2;
-    start = { x: t.clientX, y: t.clientY, t: e.timeStamp, atBottom };
+    start = { x: t.clientX, y: t.clientY, t: e.timeStamp };
   }
 
   function onEnd(e: TouchEvent) {
@@ -46,11 +42,7 @@ export function swipe(node: HTMLElement, handlers: SwipeHandlers) {
     const dx = t.clientX - start.x;
     const dy = t.clientY - start.y;
     const quick = e.timeStamp - start.t < MAX_TIME;
-    const { atBottom } = start;
     start = undefined;
-    if (!quick || document.querySelector('dialog[open]')) return;
-    // Clearly upwards, from the bottom of the page: there was nothing left to scroll.
-    if (atBottom && -dy >= UP_DISTANCE && -dy >= 2 * Math.abs(dx)) return current.up?.();
     // Clearly sideways: long enough, and at least twice as horizontal as vertical.
     if (!quick || Math.abs(dx) < MIN_DISTANCE || Math.abs(dx) < 2 * Math.abs(dy)) return;
     if (document.querySelector('dialog[open]')) return;

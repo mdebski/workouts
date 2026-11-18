@@ -1,6 +1,6 @@
 # Workouts
 
-A mobile-first workout tracker that runs entirely in the browser. Plan repeating programmes, log workouts with weights, times, counts and notes, and run rest and interval timers. Installable as a PWA and works offline. There is no backend: data stays in the browser's local storage, with JSON5 export and import for backups.
+A mobile-first workout tracker that runs entirely in the browser. Plan repeating programmes, log workouts with weights, times, counts and notes, and run rest and interval timers. Installable as a PWA and works offline. There is no backend: data stays in the browser's local storage, with JSON export and import for backups (import also reads older JSON5 backups).
 
 Built with Svelte 5 and Vite.
 

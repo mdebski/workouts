@@ -555,6 +555,19 @@ export function deleteProgramme(data: Data, id: string, today: ISODate): void {
   data.programmes = data.programmes.filter((p) => p.id !== id);
 }
 
+/**
+ * One programme with its workouts up to today, as a backup file that the usual import
+ * takes: merging it adds the programme and plans its future workouts again.
+ */
+export function programmeBackup(data: Data, id: string, today: ISODate): Data {
+  return {
+    version: 1,
+    programmes: data.programmes.filter((p) => p.id === id),
+    workouts: data.workouts.filter((w) => w.programmeId === id && (w.date < today || isLogged(w))),
+    settings: data.settings,
+  };
+}
+
 /** Deletes a programme and every workout it made, finished ones included. */
 export function deleteProgrammeAndWorkouts(data: Data, id: string): void {
   data.workouts = data.workouts.filter((w) => w.programmeId !== id);
