@@ -56,7 +56,7 @@ a { color: inherit; text-decoration: none; }
   background: var(--bg);
   /* Paint the background out to the screen edges (content stays in the column), so nothing
      scrolling underneath shows at the sides. */
-  border-image: conic-gradient(var(--bg) 0 0) fill 0 / / 0 100vmax;
+  border-image-source: conic-gradient(var(--bg) 0 0); border-image-slice: 0 fill; border-image-outset: 0 100vmax;
 }
 .bar h1 { flex: 1; min-width: 0; }
 /* The two main screens fit both tab names and three buttons on a phone. */

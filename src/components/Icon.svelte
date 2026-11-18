@@ -36,7 +36,7 @@
     minus: 'M5 12h14',
     grip: 'M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01',
     skip: 'M5 12h14M13 6l6 6-6 6',
-    reset: 'M9 14L4 9l5-5M4 9h11a5 5 0 010 10h-3',
+    reset: 'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5',
     table: 'M4 5h16v14H4zM4 10h16M10 5v14',
     dumbbell: 'M6.5 7v10M3.5 9.5v5M17.5 7v10M20.5 9.5v5M6.5 12h11',
   } as const;

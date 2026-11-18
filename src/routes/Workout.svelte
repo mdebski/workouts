@@ -32,6 +32,7 @@
   const STEPS: Record<Exclude<Unit, 'kg'>, number[]> = { s: [5, 10, 30], min: [1, 5, 10], km: [0.5, 1, 5], '×': [1, 5, 10] };
 
   let notesOpen = $state(false);
+  let moreOpen = $state(false);
   let sheetOpen = $state(false);
   let sheetFor = $state('');
   /** Which of several weights the sheet edits, or -1 for the single value. */
@@ -511,12 +512,13 @@
   {/if}
 
 
-  <details class="more">
-    <summary>Move or delete</summary>
+  <details class="more" bind:open={moreOpen}>
+    <summary><Icon name={moreOpen ? 'down' : 'right'} size={16} /> Move, copy or delete</summary>
     <label class="field"><span>{isComplete(w) ? 'Done on' : 'Planned for'}</span>
       <input type="date" value={w.date} onchange={(e) => { if (isISODate(e.currentTarget.value)) w.date = e.currentTarget.value; }} />
     </label>
     {#if w.scheduledDate && w.scheduledDate !== w.date}<p class="muted">Originally scheduled for {fmtDay(w.scheduledDate)}.</p>{/if}
+    <a class="btn wide copy-of" href="#/w/new/edit?from={w.id}">{w.programmeId ? 'Copy as a one-off workout' : 'Create a copy'}</a>
     <button class="btn danger wide" onclick={() => remove(w)}>Delete workout</button>
   </details>
 
@@ -640,7 +642,8 @@
   .add-note:hover { color: var(--text); }
   textarea { field-sizing: content; min-height: 4rem; resize: vertical; }
   .more { margin-top: 1.5rem; color: var(--muted); }
-  .more summary { min-height: 2.75rem; display: flex; align-items: center; cursor: pointer; padding: 0 0.25rem; }
+  .more summary { min-height: 2.75rem; display: flex; align-items: center; gap: 0.375rem; cursor: pointer; padding: 0 0.25rem; font-weight: 600; list-style: none; }
+  .more summary::-webkit-details-marker { display: none; }
   .more > :not(summary) { margin-top: 0.5rem; }
 
   .spacer { height: 10rem; }

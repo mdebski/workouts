@@ -5,21 +5,25 @@
   import Fold from '../components/Fold.svelte';
   import EmojiPicks from '../components/EmojiPicks.svelte';
   import { describeEnd, describeRepeat } from '../lib/schedule.ts';
-  import { db, rememberEmoji, blankProgramme, blankWorkout, getProgramme, getWorkout, removeProgramme, removeProgrammeAndWorkouts, removeWorkout, saveProgramme, saveWorkout, snapshot } from '../lib/state.svelte.ts';
+  import { db, rememberEmoji, blankProgramme, blankWorkout, copyOfWorkout, getProgramme, getWorkout, removeProgramme, removeProgrammeAndWorkouts, removeWorkout, saveProgramme, saveWorkout, snapshot } from '../lib/state.svelte.ts';
   import { clone, flatten, isLogged, programmeBackup } from '../lib/core.ts';
   import { downloadJSON, slug } from '../lib/download.ts';
   import { go } from '../lib/router.svelte.ts';
   import { isISODate, today } from '../lib/dates.ts';
   import type { Item, Programme, Result, Schedule, Workout } from '../lib/types.ts';
 
-  let props: { kind: 'programme' | 'workout'; id: string; date?: string } = $props();
+  let props: { kind: 'programme' | 'workout'; id: string; date?: string; from?: string } = $props();
   // The parent re-creates this screen whenever the route changes, so the props are read once.
-  const { kind, id, date } = untrack(() => ({ ...props }));
+  const { kind, id, date, from } = untrack(() => ({ ...props }));
 
   const isProgramme = kind === 'programme';
   const isNew = id === 'new';
   const existing: Programme | Workout | undefined = isNew ? undefined : isProgramme ? getProgramme(id) : getWorkout(id);
-  const source = existing ? clone($state.snapshot(existing) as Programme | Workout) : isProgramme ? blankProgramme() : blankWorkout(date && isISODate(date) ? date : today());
+  // "Create a copy" of a one-off workout: the same workout, with the date left for you to pick.
+  const copied = isNew && !isProgramme && from ? getWorkout(from) : undefined;
+  const source = existing ? clone($state.snapshot(existing) as Programme | Workout)
+    : copied ? copyOfWorkout($state.snapshot(copied) as Workout)
+    : isProgramme ? blankProgramme() : blankWorkout(date && isISODate(date) ? date : today());
 
   let name = $state(source.name);
   let emoji = $state(source.emoji);
@@ -53,8 +57,8 @@
   }
 
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const backHref = isProgramme ? '#/programmes' : isNew ? '#/' : `#/w/${id}`;
-  const title = isProgramme ? (isNew ? 'New programme' : 'Edit programme') : isNew ? 'New workout' : 'Edit workout';
+  const backHref = isProgramme ? '#/programmes' : copied ? `#/w/${copied.id}` : isNew ? '#/' : `#/w/${id}`;
+  const title = isProgramme ? (isNew ? 'New programme' : 'Edit programme') : copied ? 'Copy of workout' : isNew ? 'New workout' : 'Edit workout';
 
   function setRepeat(k: 'weekdays' | 'interval') {
     if (schedule.repeat.kind !== k) schedule.repeat = k === 'weekdays' ? { kind: k, days: [1, 3, 5] } : { kind: k, days: 2 };
@@ -214,7 +218,7 @@
       </div>
       </Fold>
     {:else}
-      <label class="field"><span>Date</span><input type="date" bind:value={workoutDate} /></label>
+      <label class="field"><span>Date</span><input type="date" bind:value={workoutDate} required /></label>
     {/if}
 
     <Fold title="Exercises" bind:open={exercisesOpen} summary={count === 1 ? '1 exercise' : `${count} exercises`}>
@@ -239,6 +243,7 @@
       <button type="button" class="btn wide export" onclick={exportProgramme}>Export programme and its workouts</button>
       <p class="muted note">Saves the programme as last saved, with every workout up to today, as a file you can bring back with Import in Settings.</p>
     {/if}
+    {#if !isProgramme && !isNew}<a class="btn wide export" href="#/w/new/edit?from={id}">{(source as Workout).programmeId ? 'Copy as a one-off workout' : 'Create a copy'}</a>{/if}
     {#if !isNew}<button type="button" class="btn danger wide" onclick={remove}>Delete {isProgramme ? 'programme' : 'workout'}</button>{/if}
     {#if isProgramme && !isNew}<button type="button" class="btn danger wide" onclick={removeAll}>Delete programme and all its workouts</button>{/if}
   </form>

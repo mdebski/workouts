@@ -107,3 +107,14 @@ export function blankProgramme(): Programme {
 export function blankWorkout(date: string): Workout {
   return { id: uid(), name: '', emoji: '🏃', date, items: [] as Item[], results: {} };
 }
+
+/** A new one-off workout like `w`: same name, icon and exercises, and the weights, times or notes
+ *  it recorded; no date, nothing ticked off. */
+export function copyOfWorkout(w: Workout): Workout {
+  const results: Workout['results'] = {};
+  for (const [id, r] of Object.entries(clone(w.results))) {
+    if (r.recorded === undefined) continue;
+    results[id] = { setsDone: 0, recorded: r.recorded, ...(r.dumbbells ? { dumbbells: true } : {}) };
+  }
+  return { id: uid(), name: w.name, emoji: w.emoji, date: '', items: clone(w.items), results };
+}
