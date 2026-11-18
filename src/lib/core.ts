@@ -474,9 +474,12 @@ export function searchExercises(data: Data, query: string, sort: SearchSort = 'd
   const groups = new Map<string, SearchGroup>();
   const done = data.workouts.filter(isLogged).sort((a, b) => b.date.localeCompare(a.date) || (b.completedAt ?? '').localeCompare(a.completedAt ?? ''));
   for (const workout of done) {
+    const workoutName = fold(workout.name);
     for (const { ex, sets } of flatten(workout.items)) {
       const key = fold(ex.name);
-      if (!words.every((word) => key.includes(word))) continue;
+      // Words can match the exercise or the workout it was done in ("powisle deadlift").
+      const both = `${key} ${workoutName}`;
+      if (!words.every((word) => both.includes(word))) continue;
       const group = groups.get(key) ?? { name: ex.name.trim(), entries: [] };
       group.entries.push({ workout, ex, sets, result: workout.results[ex.id] });
       groups.set(key, group);
@@ -489,6 +492,13 @@ export function searchExercises(data: Data, query: string, sort: SearchSort = 'd
     for (const g of list) g.entries.sort((a, b) => (entryValue(b) ?? -Infinity) - (entryValue(a) ?? -Infinity));
   }
   return list;
+}
+
+/** Every distinct workout name among finished workouts, for suggestions. */
+export function workoutNames(data: Data): string[] {
+  const names = new Map<string, string>();
+  for (const w of data.workouts) if (isLogged(w) && w.name.trim()) names.set(fold(w.name), w.name.trim());
+  return [...names.values()].sort((a, b) => a.localeCompare(b));
 }
 
 /** Every distinct exercise name in finished workouts, for suggestions. */

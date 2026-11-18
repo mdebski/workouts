@@ -240,6 +240,7 @@ test('exercise search', () => {
   finish(b); b.results = { pull: { setsDone: 4, recorded: 12.5, feel: 'hard' } };
   d.workouts.push({ id: 'o', name: 'Gym', emoji: 'x', date: '2026-11-05', results: { q: { setsDone: 3 } }, items: [{ id: 'q', type: 'reps', name: 'Pull-Ups ', sets: 3, reps: 5, measure: 'none' }] });
   void c; // planned, so never found
+  for (const w of mine(d)) w.name = 'Strength'; // so "pull" only matches the exercise
   const g = searchExercises(d, '  PULL ');
   assert.strictEqual(g.length, 1, 'names match regardless of case and spacing');
   assert.deepEqual(g[0].entries.map((e) => [e.workout.date, e.result?.recorded]), [['2026-11-05', undefined], ['2026-11-04', 12.5], ['2026-11-02', 10]]);
@@ -247,6 +248,9 @@ test('exercise search', () => {
   assert.deepEqual(searchExercises(d, 'dead hang').map((x) => x.entries.length), [2]);
   assert.deepEqual(searchExercises(d, 'up pull').map((x) => x.name), ['Pull-Ups'], 'every word, in any order');
   assert.deepEqual(searchExercises(d, ''), []);
+  assert.deepEqual(searchExercises(d, 'gym').map((x) => [x.name, x.entries.length]), [['Pull-Ups', 1]], 'the workout name matches too');
+  assert.deepEqual(searchExercises(d, 'gym pull').map((x) => x.entries.length), [1], 'words across exercise and workout');
+  assert.strictEqual(searchExercises(d, 'strength').length, 5, 'every exercise of the matching workouts');
   assert.deepEqual(searchExercises(d, 'pull', 'value')[0].entries.map((e) => e.result?.recorded), [12.5, 10, undefined], 'highest first, unrecorded last');
   // Made-up name: one accented letter (é) and the non-decomposing letters ł and ø.
   d.workouts[0].items.push({ id: 'm', type: 'reps', name: 'Café łift øver', sets: 3, reps: 8, measure: 'weight' });

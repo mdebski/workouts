@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import Icon from '../components/Icon.svelte';
   import { db } from '../lib/state.svelte.ts';
-  import { numberOf, numbersOf, textOf, activityAmount, exerciseNames, fmtNum, fmtValues, recordsWeights, searchExercises, unitOf, type SearchEntry, type SearchSort } from '../lib/core.ts';
+  import { numberOf, numbersOf, textOf, activityAmount, exerciseNames, workoutNames, fmtNum, fmtValues, recordsWeights, searchExercises, unitOf, type SearchEntry, type SearchSort } from '../lib/core.ts';
   import { fmtDayAuto } from '../lib/dates.ts';
   import { formatDuration } from '../lib/duration.ts';
   import { router } from '../lib/router.svelte.ts';
@@ -14,6 +14,7 @@
   let sort = $state<SearchSort>(untrack(() => (router.route.query.get('sort') === 'value' ? 'value' : 'date')));
   const groups = $derived(searchExercises(db, query, sort));
   const names = $derived(exerciseNames(db));
+  const suggestions = $derived([...new Set([...names, ...workoutNames(db)])]);
   const total = $derived(groups.reduce((n, g) => n + g.entries.length, 0));
 
   // Keep the query in the address so Back from a workout returns to the same results.
@@ -60,11 +61,11 @@
 
 <form class="search" role="search" onsubmit={(e) => { e.preventDefault(); input?.blur(); }}>
   <label>
-    <span class="sr">Search exercises by name</span>
+    <span class="sr">Search by exercise or workout name</span>
     <Icon name="search" size={20} />
     <input bind:this={input} type="search" bind:value={query} list="exercise-names" placeholder="Pull-ups" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" />
   </label>
-  <datalist id="exercise-names">{#each names as n}<option value={n}></option>{/each}</datalist>
+  <datalist id="exercise-names">{#each suggestions as n}<option value={n}></option>{/each}</datalist>
   {#if query.trim()}
     <fieldset class="sort">
       <legend class="sr">Sort results</legend>
