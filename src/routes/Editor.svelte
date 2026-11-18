@@ -221,7 +221,7 @@
     <button type="submit" class="btn primary wide save">Save</button>
 
     {#if isProgramme && !isNew}
-      <p class="muted note">Changes apply to workouts from today onwards. Finished and missed workouts keep what they had.</p>
+      <p class="muted note">Saving lays out the schedule again from its start date: planned and missed workouts are replaced. Done and partly done ones stay as they are.</p>
       <label class="check"><input type="checkbox" bind:checked={archived} /> Archived (stops planning new workouts)</label>
     {/if}
     {#if !isNew}<button type="button" class="btn danger wide" onclick={remove}>Delete {isProgramme ? 'programme' : 'workout'}</button>{/if}
@@ -236,6 +236,7 @@
   .emoji-hint { margin: 0 0.25rem 0.5rem; }
   .card fieldset:last-child, .card .field:last-child { margin-bottom: 0; }
   .save { margin: 1rem 0; }
+  .danger + .danger { margin-top: 0.75rem; }
   .note { margin-bottom: 0.75rem; }
   .check { display: flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; margin-bottom: 0.75rem; }
   .check input { width: 1.25rem; height: 1.25rem; }

@@ -496,11 +496,14 @@ function fromProgramme(p: Programme, date: ISODate): Workout {
 }
 
 /**
- * Rebuilds a programme's planned workouts after it is created or edited.
- * Done, started and past (missed) workouts are kept and still use up their slot.
+ * Rebuilds a programme's workouts after it is created or edited: every slot from the start
+ * date is laid out again by the current schedule, so past slots show up as missed.
+ * Done, partly done and started workouts (and any with a note) are kept and use up their slot.
+ * Archiving only stops future planning: past slots stay as they are.
  */
-export function syncProgramme(data: Data, p: Programme, today: ISODate, isNew = false): void {
-  const keep = (w: Workout) => isLogged(w) || !!w.startedAt || (w.scheduledDate ?? w.date) < today;
+export function syncProgramme(data: Data, p: Programme, today: ISODate): void {
+  const worked = (w: Workout) => isLogged(w) || !!w.startedAt || !!w.notes?.trim();
+  const keep = p.archived ? (w: Workout) => worked(w) || (w.scheduledDate ?? w.date) < today : worked;
   const kept = data.workouts.filter((w) => w.programmeId === p.id && keep(w));
   data.workouts = data.workouts.filter((w) => w.programmeId !== p.id || keep(w));
   if (p.archived) return;
@@ -509,9 +512,8 @@ export function syncProgramme(data: Data, p: Programme, today: ISODate, isNew = 
   const { end } = p.schedule;
   let remaining = end.kind === 'count' ? end.n - kept.length : Infinity;
   const until = end.kind === 'never' ? addDays(today, HORIZON_DAYS) : lastDay(p.schedule);
-  const from = isNew ? p.schedule.start : maxISO(p.schedule.start, today);
 
-  for (const date of occurrences(p.schedule, from)) {
+  for (const date of occurrences(p.schedule)) {
     if (remaining <= 0 || (until && date > until)) break;
     if (taken.has(date)) continue;
     data.workouts.push(fromProgramme(p, date));

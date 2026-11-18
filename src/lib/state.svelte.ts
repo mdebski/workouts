@@ -45,7 +45,7 @@ export function saveProgramme(p: Programme): void {
   const isNew = i < 0;
   if (isNew) db.programmes.push(p);
   else db.programmes[i] = p;
-  syncProgramme(db, isNew ? db.programmes.at(-1)! : db.programmes[i], today(), isNew);
+  syncProgramme(db, isNew ? db.programmes.at(-1)! : db.programmes[i], today());
 }
 
 export function removeProgramme(id: string): void {

@@ -18,7 +18,7 @@ const items = (): Item[] => [
 
 const programme = (schedule: Schedule): Programme => ({ id: 'p1', name: 'Pull day', emoji: '💪', items: items(), schedule: structuredClone(schedule), archived: false });
 const mwf: Schedule = { start: '2026-11-02', repeat: { kind: 'weekdays', days: [1, 3, 5] }, end: { kind: 'count', n: 14 } };
-const withProgramme = (p: Programme, today: string): Data => { const d = emptyData(); d.programmes.push(p); syncProgramme(d, p, today, true); return d; };
+const withProgramme = (p: Programme, today: string): Data => { const d = emptyData(); d.programmes.push(p); syncProgramme(d, p, today); return d; };
 /** Ticks every set of every exercise, which is what makes a workout done. */
 const finish = (w: Workout) => { for (const { ex, sets } of flatten(w.items)) (w.results[ex.id] ??= { setsDone: 0 }).setsDone = sets; };
 const mine = (d: Data) => d.workouts.filter((w) => w.programmeId === 'p1').sort((a, b) => a.scheduledDate!.localeCompare(b.scheduledDate!));
@@ -63,7 +63,7 @@ test('"until" and open-ended programmes', () => {
   assert.strictEqual(new Set(mine(open).map((w) => w.scheduledDate)).size, HORIZON_DAYS + 8, 'no duplicate slots');
 });
 
-test('editing only changes future workouts and keeps the slot count', () => {
+test('editing lays the schedule out again but keeps done workouts', () => {
   const p = programme(mwf);
   const d = withProgramme(p, '2026-11-02');
   const ws = mine(d);
@@ -71,19 +71,31 @@ test('editing only changes future workouts and keeps the slot count', () => {
   ws[0].results.pull = { setsDone: 4, recorded: 10 };
   const doneId = ws[0].id;
 
-  // On the 9th: slot 2 and 3 were missed. Change the plan to Tue/Thu and rename an exercise.
+  // On the 9th: change the plan to Tue/Thu and rename an exercise.
   p.schedule.repeat = { kind: 'weekdays', days: [2, 4] };
   (p.items[0] as { name: string }).name = 'Chin-ups';
   syncProgramme(d, p, '2026-11-09');
 
   const after = mine(d);
-  assert.strictEqual(after.length, 14, 'missed slots still count towards the 14');
+  assert.strictEqual(after.length, 14, 'the done one still counts towards the 14');
   assert.strictEqual(after[0].id, doneId);
   assert.strictEqual((after[0].items[0] as { name: string }).name, 'Pull-ups', 'history keeps its snapshot');
-  assert.deepEqual(after.slice(0, 3).map((w) => w.scheduledDate), ['2026-11-02', '2026-11-04', '2026-11-06']);
-  assert.strictEqual(after[3].scheduledDate, '2026-11-10');
-  assert.strictEqual((after[3].items[0] as { name: string }).name, 'Chin-ups');
-  assert.ok(after.slice(3).every((w) => [2, 4].includes(weekday(w.scheduledDate!))));
+  assert.deepEqual(after.slice(0, 3).map((w) => w.scheduledDate), ['2026-11-02', '2026-11-03', '2026-11-05'], 'missed slots follow the new days');
+  assert.strictEqual((after[1].items[0] as { name: string }).name, 'Chin-ups');
+  assert.ok(after.slice(1).every((w) => [2, 4].includes(weekday(w.scheduledDate!))));
+});
+
+test('moving the start date back adds the earlier slots', () => {
+  const p = programme(mwf);
+  const d = withProgramme(p, '2026-11-09');
+  const first = mine(d)[0];
+  finish(first);
+  p.schedule.start = '2026-10-26';
+  syncProgramme(d, p, '2026-11-09');
+  const after = mine(d);
+  assert.strictEqual(after[0].scheduledDate, '2026-10-26');
+  assert.strictEqual(after.length, 14);
+  assert.ok(after.includes(first), 'the done workout stays');
 });
 
 test('a workout done early or moved keeps its slot', () => {
