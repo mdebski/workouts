@@ -130,7 +130,7 @@
   .top-row .grow { flex: 1; }
   .top-row .on { background: var(--accent); color: var(--accent-ink); }
   .days { list-style: none; margin: 0; padding: 0; }
-  .month { position: sticky; top: 3.5rem; z-index: 2; background: var(--bg); padding: 0.5rem 0.25rem; font-size: 0.8125rem; font-weight: 600; color: var(--muted); }
+  .month { position: sticky; top: 3.5rem; z-index: 2; background: var(--bg); border-image: conic-gradient(var(--bg) 0 0) fill 0 / / 0 100vmax; padding: 0.5rem 0.25rem; font-size: 0.8125rem; font-weight: 600; color: var(--muted); }
   .day { display: flex; gap: 0.625rem; margin-bottom: 0.5rem; scroll-margin-top: 6rem; }
   /* A line before each Monday separates the weeks, with the week number in the middle. */
   .week { display: flex; align-items: center; gap: 0.625rem; margin: 0.25rem 0 0.5rem; font-size: 0.75rem; font-weight: 600; color: var(--muted); }
