@@ -11,6 +11,9 @@ const MAX_PAYLOAD = 20_000;
 
 type Raw = Record<string, unknown>;
 const isObj = (v: unknown): v is Raw => !!v && typeof v === 'object' && !Array.isArray(v);
+/** A programme's description: a share link has to stay a reasonable length, even compressed. */
+export const MAX_DESCRIPTION = 2000;
+
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const num = (v: unknown, min: number, max: number, fallback: number) =>
   typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fallback;
@@ -94,7 +97,7 @@ export function sanitiseProgramme(raw: unknown, today: ISODate): Programme {
     id: uid(),
     name,
     emoji: str(raw.emoji, 8) || '💪',
-    description: str(raw.description, 300) || undefined,
+    description: str(raw.description, MAX_DESCRIPTION) || undefined,
     items: raw.items.slice(0, MAX_ITEMS).flatMap(item),
     schedule: { start, repeat: repeat(raw.schedule.repeat), end: ending },
     archived: false,

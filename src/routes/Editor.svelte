@@ -8,6 +8,7 @@
   import { db, rememberEmoji, blankProgramme, blankWorkout, copyOfWorkout, getProgramme, getWorkout, removeProgramme, removeProgrammeAndWorkouts, removeWorkout, saveProgramme, saveWorkout, snapshot } from '../lib/state.svelte.ts';
   import { clone, flatten, isLogged, programmeBackup } from '../lib/core.ts';
   import { downloadJSON, slug } from '../lib/download.ts';
+  import { MAX_DESCRIPTION } from '../lib/share.ts';
   import { go } from '../lib/router.svelte.ts';
   import { isISODate, today } from '../lib/dates.ts';
   import type { Item, Programme, Result, Schedule, Workout } from '../lib/types.ts';
@@ -31,6 +32,8 @@
   let schedule = $state<Schedule>('schedule' in source ? source.schedule : blankProgramme().schedule);
   let workoutDate = $state('date' in source ? source.date : today());
   let archived = $state('archived' in source ? source.archived : false);
+  let description = $state(('description' in source ? source.description : undefined) ?? '');
+  let descriptionOpen = $state(false);
   let error = $state('');
   let scheduleOpen = $state(true);
   let exercisesOpen = $state(true);
@@ -97,7 +100,7 @@
       const s = clone($state.snapshot(schedule)) as Schedule;
       if (s.repeat.kind === 'interval') s.repeat.days = Math.round(s.repeat.days);
       if (s.end.kind === 'count' || s.end.kind === 'weeks') s.end.n = Math.round(s.end.n);
-      saveProgramme({ ...(source as Programme), ...common, schedule: s, archived });
+      saveProgramme({ ...(source as Programme), ...common, description: description.trim() || undefined, schedule: s, archived });
       go('/programmes');
     } else {
       const ids = new Set(flatten(common.items).map((f) => f.ex.id));
@@ -175,6 +178,16 @@
     <p class="muted emoji-hint" id="emoji-hint" hidden={!emojiHint}>
       Type any emoji into the Icon box: use the emoji key on your phone's keyboard, or press Windows + . (Mac: Ctrl + Cmd + Space) on a computer.
     </p>
+
+    {#if isProgramme}
+      <!-- An optional description; it only takes space once there is one, or you ask to add it. -->
+      {#if description || descriptionOpen}
+        <!-- svelte-ignore a11y_autofocus -->
+        <label class="field"><span>Description</span><textarea bind:value={description} rows="2" maxlength={MAX_DESCRIPTION} placeholder="What it's for, how to progress" autofocus={descriptionOpen && !description}></textarea></label>
+      {:else}
+        <button type="button" class="add-desc" onclick={() => (descriptionOpen = true)}>Description +</button>
+      {/if}
+    {/if}
 
     {#if isProgramme}
       <Fold title="Schedule" bind:open={scheduleOpen} summary="{describeRepeat(schedule)} · {describeEnd(schedule)}">
@@ -259,6 +272,9 @@
   .danger + .danger { margin-top: 0.75rem; }
   .export { margin-top: 0.5rem; }
   .note { margin-bottom: 0.75rem; }
+  .add-desc { display: block; margin: 0 0 0.5rem; padding: 0.5rem 0.25rem; min-height: 2.75rem; border: none; background: none; color: var(--muted); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer; }
+  .add-desc:hover { color: var(--text); }
+  textarea { field-sizing: content; min-height: 3.5rem; resize: vertical; }
   .check { display: flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; margin-bottom: 0.75rem; }
   .check input { width: 1.25rem; height: 1.25rem; }
 </style>
