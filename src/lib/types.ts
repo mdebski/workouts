@@ -2,10 +2,18 @@ export type ISODate = string; // YYYY-MM-DD, local calendar date
 
 export type Feel = 'easy' | 'hard' | 'failed';
 
+/**
+ * Something recorded each time an exercise is done. Times are in seconds, distances
+ * in km; grades are text: French for routes (e.g. 7a+), the V scale for boulders (e.g. V5).
+ */
+export type RecordKind = 'weight' | 'time' | 'count' | 'distance' | 'route' | 'boulder' | 'note';
+
 interface ExerciseBase {
   id: string;
   name: string;
   description?: string;
+  /** What gets recorded, in order. A kind can repeat, e.g. two weights for two movements. */
+  record: RecordKind[];
 }
 
 export interface RepsExercise extends ExerciseBase {
@@ -14,13 +22,6 @@ export interface RepsExercise extends ExerciseBase {
   reps: number;
   /** Varying reps, one entry per set (e.g. 5, 5, 10). When set, `sets` is its length and `reps` its first entry. */
   repScheme?: number[];
-  /**
-   * What gets recorded per workout: nothing, a weight (kg), several weights (e.g. one
-   * per set, or for two movements done together), a hold time (s) or free text.
-   */
-  measure: 'none' | 'weight' | 'weights' | 'time' | 'text';
-  /** How many weights are recorded when `measure` is 'weights'. */
-  weightCount?: number;
   restBetweenSets?: number;
 }
 
@@ -30,13 +31,11 @@ export interface TimedExercise extends ExerciseBase {
   reps: number;
   workSec: number;
   restSec: number;
-  trackWeight: boolean;
 }
 
+/** Anything else, e.g. a run or a climbing session: done once something is recorded. */
 export interface ActivityExercise extends ExerciseBase {
   type: 'activity';
-  /** What gets recorded when it is done: how many, how many minutes, or how far (km). Nothing is preset. */
-  measure: 'count' | 'time' | 'distance';
 }
 
 export type Exercise = RepsExercise | TimedExercise | ActivityExercise;
@@ -83,16 +82,13 @@ export interface Programme {
   archived: boolean;
 }
 
-export type Recorded = number | (number | null)[] | string;
+/** One recorded value: a number (kg, seconds, a count or km), a grade or a note; null when not set. */
+export type RecordValue = number | string | null;
 
 export interface Result {
   setsDone: number;
-  /**
-   * What was recorded, if anything; which kind depends on the exercise:
-   * a number (kg, seconds, minutes, km or a count), several weights (a gap is null),
-   * or a note.
-   */
-  recorded?: Recorded;
+  /** What was recorded, one value per entry of the exercise's `record`, in the same order. */
+  values?: RecordValue[];
   /** The weight was done with dumbbells instead of the usual implement: value(s) are per dumbbell. */
   dumbbells?: boolean;
   feel?: Feel;

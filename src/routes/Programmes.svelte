@@ -109,7 +109,6 @@
         <!-- The name's link covers the whole card, so tapping anywhere opens the history;
              the buttons sit above it and keep their own actions. -->
         <a class="open" href="#/p/{p.id}/history"><strong>{p.name}</strong></a>
-        {#if p.description}<p class="desc">{p.description}</p>{/if}
         <p class="muted">{summary(p)}</p>
         <p class="muted">{progress(p)}</p>
       </div>
@@ -159,7 +158,6 @@
 </Sheet>
 
 <style>
-  .desc { margin: 0.125rem 0 0.25rem; font-size: 0.875rem; white-space: pre-line; overflow-wrap: anywhere; }
   .prog { position: relative; cursor: pointer; }
   .prog:hover { background: var(--raise); }
   .open::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }

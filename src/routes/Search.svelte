@@ -2,7 +2,8 @@
   import { onMount, untrack } from 'svelte';
   import Icon from '../components/Icon.svelte';
   import { db } from '../lib/state.svelte.ts';
-  import { numberOf, numbersOf, textOf, activityAmount, exerciseNames, workoutNames, fmtNum, fmtValues, recordsWeights, searchExercises, unitOf, type SearchEntry, type SearchSort } from '../lib/core.ts';
+  import { exerciseNames, workoutNames, searchExercises, type SearchEntry, type SearchSort } from '../lib/core.ts';
+  import { fmtRecorded } from '../lib/record.ts';
   import { fmtDayAuto } from '../lib/dates.ts';
   import { formatDuration } from '../lib/duration.ts';
   import { router } from '../lib/router.svelte.ts';
@@ -34,12 +35,9 @@
 
   /** What was recorded, in a few words. */
   function recorded({ ex, sets, result: r }: SearchEntry): string {
-    const unit = unitOf(ex);
     const parts: string[] = [];
-    if (ex.type === 'activity') parts.push(`${fmtNum(numberOf(r) ?? 0)} ${activityAmount(ex).unit}`);
-    else if (recordsWeights(ex) && numbersOf(r)?.some((v) => v !== null)) parts.push(`${fmtValues(numbersOf(r)!)} kg`);
-    else if (unit && numberOf(r) !== undefined) parts.push(unit === 's' ? formatDuration(numberOf(r)!) : `${fmtNum(numberOf(r)!)} ${unit}`);
-    if (textOf(r)) parts.push(textOf(r)!);
+    const values = fmtRecorded(ex, r);
+    if (values) parts.push(values);
     if (ex.type !== 'activity') {
       const done = r?.setsDone ?? 0;
       if (done < sets) parts.push(`${done} of ${sets} ${ex.type === 'reps' ? 'sets' : 'rounds'}`);
@@ -48,7 +46,7 @@
   }
 
   function plan({ ex, sets }: SearchEntry): string {
-    if (ex.type === 'reps') return ex.measure === 'time' ? `${sets} × hold` : `${sets} × ${ex.reps}`;
+    if (ex.type === 'reps') return ex.record.includes('time') && ex.reps === 1 ? `${sets} × hold` : `${sets} × ${ex.reps}`;
     if (ex.type === 'timed') return `${ex.reps} × ${formatDuration(ex.workSec)} / ${formatDuration(ex.restSec)}`;
     return '';
   }

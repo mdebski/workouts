@@ -5,52 +5,51 @@
   import Icon from './Icon.svelte';
   import Sheet from './Sheet.svelte';
   import DurationInput from './DurationInput.svelte';
-  import { numberOf, numbersOf, textOf, clone, describe, flatten, fmtNum, fmtRecorded, recordsText, recordsWeights, uid, unitOf, weightCountOf } from '../lib/core.ts';
+  import { clone, describe, flatten, fmtNum, uid } from '../lib/core.ts';
+  import { findKinds, fmtRecorded, gradesOf, isGradeKind, kindLabel, valuesFor } from '../lib/record.ts';
   import { formatDuration, parseDuration } from '../lib/duration.ts';
   import { parseQuick, type QuickDefaults } from '../lib/quick.ts';
-  import type { Exercise, Item, Rest, Result, Step, Superset } from '../lib/types.ts';
+  import type { Exercise, Item, RecordKind, RecordValue, Rest, Result, Step, Superset } from '../lib/types.ts';
 
   /**
    * With `results` (when editing a workout rather than a programme), each exercise's
-   * sheet also takes what was recorded for it: weight, time, note or amount.
+   * sheet also takes what was recorded for it: weights, times, grades, notes…
    */
   let { items = $bindable(), results = $bindable() }: { items: Item[]; results?: Record<string, Result> } = $props();
   const recording = $derived(results !== undefined);
 
   type Kind = Exercise['type'];
-  type Base = { id: string; name: string; description?: string };
+  type Base = { id: string; name: string; description?: string; record: RecordKind[] };
   const KINDS: { id: Kind; label: string; hint: string }[] = [
-    { id: 'reps', label: 'Reps', hint: 'Sets of reps or holds. Can record a weight, a hold time or a note.' },
+    { id: 'reps', label: 'Reps', hint: 'Sets of reps or holds. Record a time to get a hold timer.' },
     { id: 'timed', label: 'Timed', hint: 'Rounds of work and rest run by the timer, e.g. 3 × 5s on, 5s off. Times take units: 45, 45s, 2min, 1h.' },
-    { id: 'activity', label: 'Activity', hint: 'Anything else: a warm-up, a run, jumping jacks. You record the minutes or the count when you do it.' },
+    { id: 'activity', label: 'Activity', hint: 'Anything else: a warm-up, a run, a climbing session. It\'s done once you record something.' },
   ];
 
   /** New exercises start from the sets and reps of the last one added. */
   function defaults(): QuickDefaults {
     const last = flatten(items).map((f) => f.ex).findLast((ex) => ex.type === 'reps');
     return last?.type === 'reps'
-      ? { sets: last.sets, reps: last.reps, repScheme: last.repScheme && [...last.repScheme], measure: last.measure, weightCount: last.weightCount, restBetweenSets: last.restBetweenSets }
-      : { sets: 3, reps: 10, measure: 'weight' };
+      ? { sets: last.sets, reps: last.reps, repScheme: last.repScheme && [...last.repScheme], record: [...last.record], restBetweenSets: last.restBetweenSets }
+      : { sets: 3, reps: 10, record: ['weight'] };
   }
 
   function blank(type: Kind, base: Base): Exercise {
-    if (type === 'reps') return { ...base, type, ...defaults() };
-    if (type === 'timed') return { ...base, type, reps: 6, workSec: 5, restSec: 5, trackWeight: false };
-    return { ...base, type, measure: 'time' };
+    if (type === 'reps') return { ...defaults(), ...base, type };
+    if (type === 'timed') return { ...base, type, reps: 6, workSec: 5, restSec: 5 };
+    return { ...base, type };
   }
 
   let open = $state(false);
-  let draft = $state<Exercise>(blank('reps', { id: uid(), name: '' }));
+  let draft = $state<Exercise>(blank('reps', { id: uid(), name: '', record: defaults().record }));
   let inSuperset = $state(false);
   let isNew = $state(true);
   let restOpen = $state(false);
   let notesOpen = $state(false);
   let error = $state('');
   let nameInput = $state<HTMLInputElement>();
-  /** The recorded value being edited in the sheet (workouts only), one field per kind of input. */
-  type Draft = { value?: number; values?: (number | null)[]; text?: string };
-  let draftResult = $state<Draft>({});
-  const toDraft = (r: Result | undefined): Draft => ({ value: numberOf(r), values: numbersOf(r) && [...numbersOf(r)!], text: textOf(r) });
+  /** The values being edited in the sheet (workouts only), one per entry of the record list. */
+  let draftValues = $state<RecordValue[]>([]);
   // Where the draft goes when the sheet is confirmed.
   let list: (Item | Step)[] = [];
   let index = -1;
@@ -63,8 +62,8 @@
     restOpen = false;
     notesOpen = false;
     error = '';
-    draft = blank('reps', { id: uid(), name: '' });
-    draftResult = {};
+    draft = blank('reps', { id: uid(), name: '', record: defaults().record });
+    draftValues = draft.record.map(() => null);
     open = true;
   }
 
@@ -77,7 +76,7 @@
     notesOpen = false;
     error = '';
     draft = clone($state.snapshot(from[i])) as Exercise;
-    draftResult = toDraft(results?.[draft.id]);
+    draftValues = valuesFor(draft, results?.[draft.id]);
     open = true;
   }
 
@@ -92,12 +91,15 @@
       return;
     }
     draft.description = draft.description?.trim() || undefined;
+    if (draft.type === 'activity' && !draft.record.length) {
+      error = 'Pick something to record: an activity is done once it has a value.';
+      return;
+    }
     if (draft.type === 'reps') {
       const scheme = inSuperset ? [] : (draft.repScheme ?? []).filter((n) => n > 0);
       draft.repScheme = scheme.length ? scheme : undefined;
       draft.sets = inSuperset ? 1 : scheme.length || int(draft.sets, 1, 3);
       draft.reps = scheme[0] ?? int(draft.reps, 1, 1);
-      draft.weightCount = draft.measure === 'weights' ? Math.min(6, int(draft.weightCount, 2, scheme.length || 2)) : undefined;
       draft.restBetweenSets = inSuperset ? undefined : optional(draft.restBetweenSets);
     } else if (draft.type === 'timed') {
       draft.reps = int(draft.reps, 1, 1);
@@ -113,7 +115,32 @@
     // Start the next one as a copy of the one just added: same type, sets, reps and rests.
     // Only the name and notes are specific to an exercise, so those start empty.
     draft = { ...clone(value), id: uid(), name: '', description: undefined };
+    draftValues = draft.record.map(() => null);
   }
+
+  // Adding what gets recorded: type to narrow the list, tap one (or Enter for the first).
+  let recordQuery = $state('');
+  let recordListOpen = $state(false);
+  const recordMatches = $derived(findKinds(recordQuery));
+
+  /** Appends a kind under "Record each workout" (repeats are fine, e.g. two weights). */
+  function addRecord(k: RecordKind) {
+    draft.record.push(k);
+    draftValues.push(null);
+    recordQuery = '';
+  }
+
+  function removeRecord(i: number) {
+    draft.record.splice(i, 1);
+    draftValues.splice(i, 1);
+  }
+
+  /** "Weight", or "Weight 2" when there are several of the same kind. */
+  const entryLabel = (record: RecordKind[], i: number) => {
+    const k = record[i];
+    const same = record.filter((r) => r === k).length;
+    return same > 1 ? `${kindLabel(k)} ${record.slice(0, i + 1).filter((r) => r === k).length}` : kindLabel(k);
+  };
 
   const parseScheme = (text: string) => (text.match(/\d+/g) ?? []).map(Number).filter((n) => n > 0).slice(0, 20);
 
@@ -124,52 +151,27 @@
     if (!on) draft.sets = draft.sets || 3;
   }
 
-  /** Keeps only what this kind of exercise records; ticks and feel stay as they were. */
+  /** Keeps the values typed in the sheet; ticks, feel and the dumbbell flag stay as they were. */
   function storeResult(ex: Exercise) {
     if (!results) return;
     const before = results[ex.id];
     const out: Result = { setsDone: before?.setsDone ?? 0 };
     if (before?.feel) out.feel = before.feel;
-    if (recordsWeights(ex)) {
-      const values = (draftResult.values ?? []).slice(0, weightCountOf(ex));
-      if (values.some((v) => v !== null && v !== undefined)) out.recorded = values.map((v) => v ?? null);
-    } else if (recordsText(ex)) {
-      if (draftResult.text?.trim()) out.recorded = draftResult.text.trim();
-    } else if (unitOf(ex) && draftResult.value !== undefined) {
-      out.recorded = draftResult.value;
-    }
-    if (out.setsDone || out.feel || out.recorded !== undefined) results[ex.id] = out;
+    if (before?.dumbbells && ex.record.includes('weight')) out.dumbbells = true;
+    const values = ex.record.map((_, i) => draftValues[i] ?? null).map((v) => (typeof v === 'string' && !v.trim() ? null : v));
+    if (values.some((v) => v !== null)) out.values = values;
+    if (out.setsDone || out.feel || out.values) results[ex.id] = out;
     else delete results[ex.id];
   }
 
-  /** A typed number, "12,5" too; empty clears it, anything unreadable is ignored. */
-  function readNumber(text: string): number | undefined | null {
-    const t = text.trim().replace(',', '.');
-    if (!t) return undefined;
+  /** A typed number for entry `i`, "12,5" too; empty clears it, anything unreadable is ignored. */
+  function setDraftNumber(i: number, e: Event & { currentTarget: HTMLInputElement }) {
+    const t = e.currentTarget.value.trim().replace(',', '.');
     const n = Number(t);
-    return Number.isFinite(n) && n >= 0 ? n : null;
-  }
-
-  function setDraftValue(e: Event & { currentTarget: HTMLInputElement }) {
-    const n = readNumber(e.currentTarget.value);
-    if (n === null) return;
-    draftResult.value = n;
-  }
-
-  function setDraftMinutes(e: Event & { currentTarget: HTMLInputElement }) {
-    const s = parseDuration(e.currentTarget.value, 'min');
-    if (s !== undefined && Number.isNaN(s)) return;
-    draftResult.value = s === undefined ? undefined : Math.round((s / 60) * 100) / 100;
-    e.currentTarget.value = draftResult.value === undefined ? '' : formatDuration(draftResult.value * 60);
-  }
-
-  function setDraftSlot(i: number, e: Event & { currentTarget: HTMLInputElement }) {
-    const n = readNumber(e.currentTarget.value);
-    if (n === null) return;
-    const values = [...(draftResult.values ?? [])];
-    while (values.length <= i) values.push(null);
-    values[i] = n ?? null;
-    draftResult.values = values;
+    if (!t) draftValues[i] = null;
+    else if (Number.isFinite(n) && n >= 0) draftValues[i] = n;
+    const v = draftValues[i];
+    e.currentTarget.value = typeof v === 'number' ? fmtNum(v) : '';
   }
 
   /** The bin on an exercise row: removes it, and anything recorded for it in this workout. */
@@ -294,8 +296,12 @@
   <button type="button" class="btn wide-cell" onclick={() => (severalOpen = true)}><Icon name="lines" size={18} /> Add several at once</button>
 </div>
 
-<Sheet bind:open focusSheet label={isNew ? 'Add exercise' : 'Edit exercise'}>
+<Sheet bind:open focusSheet full label={isNew ? 'Add exercise' : 'Edit exercise'}>
   <form onsubmit={(e) => { e.preventDefault(); void apply(); }}>
+    <div class="sheet-bar">
+      <button type="button" class="icon-btn" aria-label="Cancel" onclick={() => (open = false)}><Icon name="x" /></button>
+      <h2>{isNew ? 'Add exercise' : 'Edit exercise'}</h2>
+    </div>
     <label class="field"><span>Name</span><input type="text" bind:this={nameInput} bind:value={draft.name} autocomplete="off" enterkeyhint="done" /></label>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
 
@@ -303,7 +309,7 @@
       <legend>Type</legend>
       <div class="chips">
         {#each KINDS as k}
-          <label><input type="radio" name="kind" value={k.id} checked={draft.type === k.id} onchange={() => (draft = blank(k.id, { id: draft.id, name: draft.name, description: draft.description }))} />{k.label}</label>
+          <label><input type="radio" name="kind" value={k.id} checked={draft.type === k.id} onchange={() => (draft = blank(k.id, { id: draft.id, name: draft.name, description: draft.description, record: draft.record }))} />{k.label}</label>
         {/each}
       </div>
       <p class="muted hint">{KINDS.find((k) => k.id === draft.type)?.hint}</p>
@@ -331,62 +337,63 @@
           <label class="field"><span>Reps per set</span><input type="number" inputmode="numeric" min="1" bind:value={draft.reps} /></label>
         </div>
       {/if}
-      <fieldset>
-        <legend>Record each workout</legend>
-        <div class="chips">
-          <label><input type="radio" name="measure" value="weight" bind:group={draft.measure} />Weight</label>
-          <label><input type="radio" name="measure" value="weights" bind:group={draft.measure} />Several weights</label>
-          <label><input type="radio" name="measure" value="time" bind:group={draft.measure} />Hold time</label>
-          <label><input type="radio" name="measure" value="text" bind:group={draft.measure} />Text</label>
-          <label><input type="radio" name="measure" value="none" bind:group={draft.measure} />Nothing</label>
-        </div>
-      </fieldset>
-      {#if draft.measure === 'weights'}
-        <label class="field"><span>How many weights (2–6)</span><input type="number" inputmode="numeric" min="2" max="6" value={draft.weightCount ?? draft.repScheme?.length ?? 2}
-          onchange={(e) => { if (draft.type === 'reps') draft.weightCount = Math.min(6, Math.max(2, Math.round(Number(e.currentTarget.value)) || 2)); }} /></label>
-        <p class="muted hint">One per set, or one for each movement of a combined exercise.</p>
-      {/if}
     {:else if draft.type === 'timed'}
       <div class="cols">
         <label class="field"><span>Rounds</span><input type="number" inputmode="numeric" min="1" bind:value={draft.reps} /></label>
         <label class="field"><span>On</span><DurationInput bind:value={draft.workSec} min={1} placeholder="5s" /></label>
         <label class="field"><span>Off</span><DurationInput bind:value={draft.restSec} placeholder="5s" /></label>
       </div>
-      <label class="check"><input type="checkbox" bind:checked={draft.trackWeight} /> Record a weight</label>
-    {:else}
-      <fieldset>
-        <legend>Record each workout</legend>
-        <div class="chips">
-          <label><input type="radio" name="ameasure" value="time" bind:group={draft.measure} />Minutes</label>
-          <label><input type="radio" name="ameasure" value="count" bind:group={draft.measure} />Count</label>
-          <label><input type="radio" name="ameasure" value="distance" bind:group={draft.measure} />Distance</label>
-        </div>
-      </fieldset>
     {/if}
 
-    {#if recording}
-      <!-- Workouts only: what was done this time, straight away. -->
-      {@const unit = unitOf(draft)}
-      {#if draft.type === 'activity' && draft.measure === 'time'}
-        <label class="field"><span>How long</span><input type="text" placeholder="45, 1h 15min" autocomplete="off" value={draftResult.value === undefined ? '' : formatDuration(draftResult.value * 60)} onchange={setDraftMinutes} /></label>
-      {:else if draft.type === 'activity'}
-        <label class="field"><span>{draft.measure === 'distance' ? 'How far, km' : 'How many'}</span><input type="text" inputmode="decimal" autocomplete="off" value={draftResult.value === undefined ? '' : fmtNum(draftResult.value)} onchange={setDraftValue} /></label>
-      {:else if recordsWeights(draft)}
-        <fieldset>
-          <legend>Weights, kg</legend>
-          <div class="row slots">
-            {#each { length: weightCountOf(draft) } as _, i}
-              <input type="text" inputmode="decimal" autocomplete="off" aria-label="Weight {i + 1}, kg" value={draftResult.values?.[i] == null ? '' : fmtNum(draftResult.values[i]!)} onchange={(e) => setDraftSlot(i, e)} />
-            {/each}
-          </div>
-        </fieldset>
-      {:else if recordsText(draft)}
-        <label class="field"><span>Note</span><input type="text" autocomplete="off" placeholder="Band, grip, variation" bind:value={draftResult.text} /></label>
-      {:else if unit === 's'}
-        <label class="field"><span>Hold time</span><DurationInput bind:value={draftResult.value} placeholder="45s" /></label>
-      {:else if unit === 'kg'}
-        <label class="field"><span>Weight, kg</span><input type="text" inputmode="decimal" autocomplete="off" value={draftResult.value === undefined ? '' : fmtNum(draftResult.value)} onchange={setDraftValue} /></label>
+    <fieldset class="record-list">
+      <legend>Record each workout</legend>
+      <div class="pills">
+        {#each draft.record as k, i (i)}
+          <span class="pill">{entryLabel(draft.record, i)}<button type="button" class="pill-x" aria-label="Stop recording {entryLabel(draft.record, i).toLowerCase()}" onclick={() => removeRecord(i)}><Icon name="x" size={14} /></button></span>
+        {/each}
+      </div>
+      <input type="search" class="add-record" placeholder={draft.record.length ? 'Add… (type to search)' : 'Add something to record…'} aria-label="Add something to record" autocomplete="off" enterkeyhint="done"
+        bind:value={recordQuery} onfocus={() => (recordListOpen = true)} onblur={() => (recordListOpen = false)}
+        onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (recordMatches[0]) addRecord(recordMatches[0].id); } }} />
+      {#if recordListOpen || recordQuery}
+        <!-- Pressing an option keeps the focus in the field, so the list stays open for the next one. -->
+        <div class="suggest" role="listbox" aria-label="Things to record">
+          {#each recordMatches as k (k.id)}
+            <button type="button" role="option" aria-selected="false" onpointerdown={(e) => e.preventDefault()} onclick={() => addRecord(k.id)}>{k.label}</button>
+          {:else}
+            <span class="muted">Nothing matches "{recordQuery}"</span>
+          {/each}
+        </div>
       {/if}
+      {#if !draft.record.length}<p class="muted hint">{draft.type === 'activity' ? 'An activity needs at least one, e.g. time or distance.' : 'Nothing: just tick the sets off.'}</p>{/if}
+      {#if draft.record.includes('time') && draft.record.includes('distance')}<p class="muted hint">With a time and a distance, the workout shows your pace.</p>{/if}
+    </fieldset>
+
+    {#if recording && draft.record.length}
+      <!-- Workouts only: what was done this time, straight away. -->
+      <fieldset>
+        <legend>This workout</legend>
+        <div class="entries">
+          {#each draft.record as k, i (i)}
+            {@const label = entryLabel(draft.record, i)}
+            {@const v = draftValues[i] ?? null}
+            {#if k === 'time'}
+              <label class="field"><span>{label}</span><DurationInput bind:value={() => (typeof v === 'number' ? v : undefined), (s) => (draftValues[i] = s ?? null)} placeholder="45s, 1h 15min" /></label>
+            {:else if isGradeKind(k)}
+              <label class="field"><span>{label}</span>
+                <select value={typeof v === 'string' ? v : ''} onchange={(e) => (draftValues[i] = e.currentTarget.value || null)}>
+                  <option value="">—</option>
+                  {#each gradesOf(k) as g}<option value={g}>{g}</option>{/each}
+                </select>
+              </label>
+            {:else if k === 'note'}
+              <label class="field"><span>{label}</span><input type="text" autocomplete="off" placeholder="Band, grip, variation" value={typeof v === 'string' ? v : ''} oninput={(e) => (draftValues[i] = e.currentTarget.value || null)} /></label>
+            {:else}
+              <label class="field"><span>{label}{k === 'weight' ? ', kg' : k === 'distance' ? ', km' : ''}</span><input type="text" inputmode="decimal" autocomplete="off" value={typeof v === 'number' ? fmtNum(v) : ''} onchange={(e) => setDraftNumber(i, e)} /></label>
+            {/if}
+          {/each}
+        </div>
+      </fieldset>
     {/if}
 
     {#if !inSuperset && draft.type === 'reps'}
@@ -441,11 +448,20 @@
   .adders { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.375rem; }
   .adders .btn { padding-inline: 0.5rem; gap: 0.25rem; }
   .wide-cell { grid-column: 1 / -1; }
-  .check { display: flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; margin-bottom: 0.75rem; }
-  .check input { width: 1.25rem; height: 1.25rem; }
 
   .recorded { font-weight: 600; font-size: 0.875rem; color: var(--accent); }
-  .slots input { flex: 1; min-width: 0; text-align: right; }
+  .sheet-bar { display: flex; align-items: center; gap: 0.5rem; margin: -0.25rem 0 0.75rem -0.5rem; }
+  .sheet-bar h2 { margin: 0; font-size: 1.125rem; }
+  /* What gets recorded: one pill per entry, then the list to add another. */
+  .pills { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; }
+  .pill { display: inline-flex; align-items: center; gap: 0.125rem; min-height: 2.25rem; padding: 0 0.25rem 0 0.75rem; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font-size: 0.875rem; font-weight: 600; }
+  .pill-x { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border: none; border-radius: 50%; background: none; color: inherit; cursor: pointer; }
+  .pill-x:hover { background: rgb(0 0 0 / 0.15); }
+  .add-record { margin-top: 0.5rem; }
+  .suggest { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 0.5rem; }
+  .suggest button { min-height: 2.25rem; padding: 0 0.875rem; border: none; border-radius: 99px; background: var(--raise); color: var(--text); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer; }
+  .suggest button:hover { background: var(--line); }
+  .entries { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0 0.5rem; }
   /* A rest: a red bar down the left edge rather than a full outline. */
   .rest-item { gap: 0.5rem; box-shadow: inset 4px 0 0 var(--bad-line); }
   /* Drag handle: the whole height of the row, with a cursor that says it moves. */

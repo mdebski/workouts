@@ -3,6 +3,7 @@
 // field by field rather than used as-is.
 
 import { uid } from './core.ts';
+import { legacyRecord } from './record.ts';
 import { isISODate } from './dates.ts';
 import type { End, Exercise, ISODate, Item, Programme, Repeat, Rest, Step } from './types.ts';
 
@@ -24,25 +25,24 @@ function exercise(v: unknown): Exercise {
   if (!isObj(v)) throw new Error('bad exercise');
   const name = str(v.name, 80);
   if (!name) throw new Error('exercise without a name');
-  const base = { id: uid(), name, description: str(v.description, 300) || undefined };
+  // What it records; older links name it by type (`measure`, `trackWeight`) instead.
+  const base = { id: uid(), name, description: str(v.description, 300) || undefined, record: legacyRecord(v) };
   if (v.type === 'reps') {
-    const measure = v.measure === 'weight' || v.measure === 'weights' || v.measure === 'time' || v.measure === 'text' ? v.measure : 'none';
     const scheme = Array.isArray(v.repScheme) ? v.repScheme.slice(0, 20).map((n) => int(n, 1, 999, 1)) : [];
     return {
       ...base, type: 'reps',
       sets: scheme.length || int(v.sets, 1, 99, 1), reps: scheme[0] ?? int(v.reps, 1, 999, 1),
       repScheme: scheme.length ? scheme : undefined,
-      measure, weightCount: measure === 'weights' ? int(v.weightCount, 2, 6, 2) : undefined,
       restBetweenSets: rest(v.restBetweenSets),
     };
   }
   if (v.type === 'timed') {
     // Older links carry sets of rounds (or, older still, rounds in `sets`): it's all rounds now.
     const reps = typeof v.reps === 'number' ? (typeof v.sets === 'number' ? v.sets * v.reps : v.reps) : v.sets;
-    return { ...base, type: 'timed', reps: int(reps, 1, 99, 1), workSec: int(v.workSec, 1, 3600, 30), restSec: int(v.restSec, 0, 3600, 0), trackWeight: v.trackWeight === true };
+    return { ...base, type: 'timed', reps: int(reps, 1, 99, 1), workSec: int(v.workSec, 1, 3600, 30), restSec: int(v.restSec, 0, 3600, 0) };
   }
   if (v.type === 'activity') {
-    return { ...base, type: 'activity', measure: v.measure === 'count' || v.measure === 'distance' ? v.measure : 'time' };
+    return { ...base, type: 'activity' };
   }
   throw new Error('unknown exercise type');
 }

@@ -1,15 +1,10 @@
 import { addDays, isISODate, maxISO } from './dates.ts';
 import { lastDay, occurrences } from './schedule.ts';
 import { formatDuration } from './duration.ts';
-import type { Data, Exercise, ISODate, Item, Programme, Recorded, Result, Step, Workout } from './types.ts';
+import { cleanValues, describeRecord, fmtNum, gradeRank, hasRecorded, isGradeKind, isNumberKind, legacyRecord, legacyValues, valuesFor } from './record.ts';
+import type { Data, Exercise, ISODate, Item, Programme, RecordKind, RecordValue, Result, Step, Workout } from './types.ts';
 
-// ---- Reading what was recorded --------------------------------------------
-
-export const numberOf = (r: Result | undefined): number | undefined => (typeof r?.recorded === 'number' ? r.recorded : undefined);
-export const numbersOf = (r: Result | undefined): (number | null)[] | undefined => (Array.isArray(r?.recorded) ? r.recorded : undefined);
-export const textOf = (r: Result | undefined): string | undefined => (typeof r?.recorded === 'string' && r.recorded.trim() ? r.recorded : undefined);
-/** Whether anything was recorded: a number, at least one weight, or a non-empty note. */
-export const hasRecorded = (r: Result | undefined) => numberOf(r) !== undefined || !!numbersOf(r)?.some((v) => v !== null) || textOf(r) !== undefined;
+export { fmtNum, hasRecorded } from './record.ts';
 
 /** How far ahead open-ended programmes are generated. */
 export const HORIZON_DAYS = 56;
@@ -84,7 +79,7 @@ export function migrate(raw: unknown): Data {
       if (it.type === 'superset') untarget(it.items, results);
       else if (it.type === 'activity' && 'target' in it) {
         const done = results?.[it.id];
-        const legacy = done as (Result & { value?: number }) | undefined;
+        const legacy = done as (Result & { value?: number; recorded?: unknown }) | undefined;
         if (legacy && legacy.setsDone > 0 && legacy.value === undefined && legacy.recorded === undefined && typeof it.target === 'number') legacy.value = it.target;
         delete it.target;
       }
@@ -92,17 +87,53 @@ export function migrate(raw: unknown): Data {
   };
   for (const p of r.programmes) untarget(p.items);
   for (const w of r.workouts) untarget(w.items, w.results);
-  // A result used to keep a number, several weights and a note in separate fields,
-  // at most one of them set. They're now a single `recorded`.
-  for (const w of r.workouts) {
-    for (const res of Object.values(w.results) as (Result & { value?: number; values?: (number | null)[]; text?: string })[]) {
+  // Exercises used to record one thing, set by type (`measure`, `trackWeight`), into a single
+  // `recorded` on the result. They now list what they record (`record`) and results hold one
+  // value per entry (`values`). A workout whose exercises all have `record` is already new.
+  type Raw = Record<string, unknown>;
+  const rawExercises = (items: Item[]): Raw[] =>
+    items.flatMap((it) => (it.type === 'superset' ? it.items : [it])).filter((it) => it.type !== 'rest') as unknown as Raw[];
+  const isNewFormat = (items: Item[]) => rawExercises(items).every((ex) => Array.isArray(ex.record));
+  const legacy = r.workouts.filter((w) => !isNewFormat(w.items));
+  // Older still, a result kept a number, several weights and a note in separate fields,
+  // at most one of them set; they became the single `recorded`.
+  for (const w of legacy) {
+    for (const res of Object.values(w.results) as (Result & { recorded?: unknown; value?: number; values?: (number | null)[]; text?: string })[]) {
       if (res.recorded === undefined) {
-        const was: Recorded | undefined = res.value ?? res.values ?? (res.text || undefined);
+        const was = res.value ?? res.values ?? (res.text || undefined);
         if (was !== undefined) res.recorded = was;
       }
       delete res.value;
       delete res.values;
       delete res.text;
+    }
+  }
+  for (const w of legacy) {
+    const byId = new Map(rawExercises(w.items).map((ex) => [ex.id, ex]));
+    for (const [id, res] of Object.entries(w.results) as [string, Result & { recorded?: unknown }][]) {
+      const ex = byId.get(id);
+      const values = ex ? legacyValues(ex, res.recorded) : undefined;
+      if (values) res.values = values;
+      delete res.recorded;
+    }
+  }
+  const toRecordList = (items: Item[]) => {
+    for (const ex of rawExercises(items)) {
+      ex.record = legacyRecord(ex);
+      delete ex.measure;
+      delete ex.weightCount;
+      delete ex.trackWeight;
+    }
+  };
+  for (const p of r.programmes) toRecordList(p.items);
+  for (const w of r.workouts) {
+    toRecordList(w.items);
+    const byId = new Map(flatten(w.items).map((f) => [f.ex.id, f.ex]));
+    for (const [id, res] of Object.entries(w.results)) {
+      const ex = byId.get(id);
+      const values = ex ? cleanValues(ex.record, res.values) : undefined;
+      if (values) res.values = values;
+      else delete res.values;
     }
   }
   // Workout status used to be stored. It's now worked out from the results, so a workout
@@ -146,40 +177,15 @@ export function flatten(items: Item[]): FlatExercise[] {
   );
 }
 
-export type Unit = 'kg' | 's' | 'min' | 'km' | '×';
-
-/** The unit of the value recorded for an exercise, or null if nothing is recorded. */
-export function unitOf(ex: Exercise): Unit | null {
-  if (ex.type === 'reps') return ex.measure === 'weight' || ex.measure === 'weights' ? 'kg' : ex.measure === 'time' ? 's' : null;
-  if (ex.type === 'timed') return ex.trackWeight ? 'kg' : null;
-  return ex.measure === 'time' ? 'min' : ex.measure === 'distance' ? 'km' : '×';
-}
-
 /** Whether the exercise records a weight in kg, so a dumbbell flag makes sense. */
-export const recordsKg = (ex: Exercise) => unitOf(ex) === 'kg';
+export const recordsKg = (ex: Exercise) => ex.record.includes('weight');
 
 /** Carries the dumbbell flag over from another workout's result. */
 function copyDumbbells(w: Workout, from: Workout, ex: Exercise) {
-  const flat = flatten(from.items);
-  const match = flat.find((f) => f.ex.id === ex.id) ?? flat.find((f) => f.ex.name === ex.name && unitOf(f.ex) === 'kg');
+  const match = matchingExercise(from, ex);
   const r = resultOf(w, ex.id);
-  if (match && from.results[match.ex.id]?.dumbbells) r.dumbbells = true;
+  if (match && from.results[match.id]?.dumbbells) r.dumbbells = true;
   else delete r.dumbbells;
-}
-
-/** How an activity's amount is shown and nudged: its unit word and the − / + step. */
-export function activityAmount(ex: Exercise): { unit: string; step: number; stepLabel: string } {
-  if (ex.type !== 'activity' || ex.measure === 'count') return { unit: 'times', step: 1, stepLabel: 'one' };
-  if (ex.measure === 'distance') return { unit: 'km', step: 0.5, stepLabel: '0.5 km' };
-  return { unit: 'min', step: 1, stepLabel: 'one minute' };
-}
-
-export const fmtNum = (n: number) => String(Math.round(n * 100) / 100);
-
-export function fmtValue(value: number | undefined, unit: Unit | null): string {
-  if (unit === null) return '';
-  if (value === undefined) return `— ${unit}`;
-  return unit === '×' ? `${fmtNum(value)}×` : `${fmtNum(value)} ${unit}`;
 }
 
 export function fmtSecs(total: number): string {
@@ -187,18 +193,21 @@ export function fmtSecs(total: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export function describe(ex: Exercise, inSuperset = false): string {
+/**
+ * The plan in a few words, e.g. "3 × 10 · weight · rest 90s". Without what gets recorded
+ * when `withRecord` is false (shown elsewhere as values).
+ */
+export function describe(ex: Exercise, inSuperset = false, withRecord = true): string {
   const rest = (n?: number) => (n ? ` · rest ${formatDuration(n)}` : '');
+  const what = withRecord && ex.record.length ? ` · ${describeRecord(ex.record)}` : '';
   if (ex.type === 'reps') {
-    const what = ex.measure === 'time' ? (ex.reps === 1 ? 'hold' : `${ex.reps} holds`) : `${ex.reps} reps`;
-    const sets = ex.repScheme?.length ? `${ex.repScheme.join(' / ')} reps` : inSuperset ? what : `${ex.sets} × ${ex.measure === 'time' && ex.reps === 1 ? 'hold' : ex.reps}`;
-    const m = ex.measure === 'none' ? '' : ex.measure === 'text' ? ' · notes' : ex.measure === 'weights' ? ` · ${weightCountOf(ex)} weights` : ` · ${ex.measure}`;
-    return sets + m + (inSuperset ? '' : rest(ex.restBetweenSets));
+    const holds = ex.record.includes('time') && ex.reps === 1;
+    const one = holds ? 'hold' : `${ex.reps} reps`;
+    const sets = ex.repScheme?.length ? `${ex.repScheme.join(' / ')} reps` : inSuperset ? one : `${ex.sets} × ${holds ? 'hold' : ex.reps}`;
+    return sets + what + (inSuperset ? '' : rest(ex.restBetweenSets));
   }
-  if (ex.type === 'timed') {
-    return `${ex.reps} × ${formatDuration(ex.workSec)} / ${formatDuration(ex.restSec)}${ex.trackWeight ? ' · weight' : ''}`;
-  }
-  return ex.measure === 'time' ? 'Activity · record minutes' : ex.measure === 'distance' ? 'Activity · record distance' : 'Activity · record a count';
+  if (ex.type === 'timed') return `${ex.reps} × ${formatDuration(ex.workSec)} / ${formatDuration(ex.restSec)}${what}`;
+  return `Activity${what}`;
 }
 
 export function resultOf(w: Workout, exId: string): Result {
@@ -208,9 +217,16 @@ export function resultOf(w: Workout, exId: string): Result {
   return w.results[exId];
 }
 
-/** The value recorded for an exercise in this workout, if any. */
-export function valueOf(w: Workout, ex: Exercise): number | undefined {
-  return numberOf(w.results[ex.id]);
+/** The value recorded for entry `i` of an exercise's record list in this workout. */
+export const valueAt = (w: Workout, ex: Exercise, i: number): RecordValue => w.results[ex.id]?.values?.[i] ?? null;
+
+/** Sets entry `i`; a cleared entry is null, and a result with nothing left loses its values. */
+export function setValueAt(w: Workout, ex: Exercise, i: number, v: RecordValue) {
+  const r = resultOf(w, ex.id);
+  const values = valuesFor(ex, r);
+  values[i] = v === '' ? null : v;
+  if (values.some((x) => x !== null)) r.values = values;
+  else delete r.values;
 }
 
 /**
@@ -220,9 +236,13 @@ export function valueOf(w: Workout, ex: Exercise): number | undefined {
  */
 export function exerciseFinished(r: Result | undefined, ex: Exercise, sets: number): boolean {
   if (r?.feel === 'failed') return true;
-  if (ex.type === 'activity') return (numberOf(r) ?? 0) > 0 || (r?.setsDone ?? 0) >= sets;
+  if (ex.type === 'activity') return activityRecorded(ex, r) || (r?.setsDone ?? 0) >= sets;
   return (r?.setsDone ?? 0) >= sets;
 }
+
+/** An activity counts as done once anything is recorded for it (a zero doesn't count). */
+const activityRecorded = (ex: Exercise, r: Result | undefined) =>
+  valuesFor(ex, r).some((v) => (typeof v === 'number' ? v > 0 : v !== null && v.trim() !== ''));
 
 /** Done means every exercise finished. Workout status is never stored, only worked out from this. */
 export function isComplete(w: Workout): boolean {
@@ -237,7 +257,7 @@ export function isComplete(w: Workout): boolean {
 export function hasProgress(w: Workout): boolean {
   return flatten(w.items).some(({ ex }) => {
     const r = w.results[ex.id];
-    return !!r && (r.setsDone > 0 || !!r.feel || (ex.type === 'activity' && hasRecorded(r)));
+    return !!r && (r.setsDone > 0 || !!r.feel || (ex.type === 'activity' && activityRecorded(ex, r)));
   });
 }
 
@@ -280,67 +300,36 @@ export function previousDone(data: Data, w: Workout): Workout | undefined {
     ?? all.filter((o) => o.id !== w.id && isLogged(o) && o.date <= w.date).at(-1);
 }
 
-/** Value recorded for the matching exercise (same id, else same name) in another workout. */
-export function matchingValue(from: Workout | undefined, ex: Exercise): number | undefined {
+/** The same exercise in another workout: same id, else same name and the same things recorded. */
+export function matchingExercise(from: Workout | undefined, ex: Exercise): Exercise | undefined {
   if (!from) return undefined;
-  const flat = flatten(from.items);
-  const match = flat.find((f) => f.ex.id === ex.id) ?? flat.find((f) => f.ex.name === ex.name && unitOf(f.ex) === unitOf(ex));
-  return match ? numberOf(from.results[match.ex.id]) : undefined;
+  const flat = flatten(from.items).map((f) => f.ex);
+  const same = (a: RecordKind[], b: RecordKind[]) => a.length === b.length && a.every((k, i) => k === b[i]);
+  return flat.find((o) => o.id === ex.id) ?? flat.find((o) => o.name === ex.name && same(o.record, ex.record)) ?? flat.find((o) => o.name === ex.name);
 }
 
-export const recordsWeights = (ex: Exercise): ex is Extract<Exercise, { type: 'reps' }> => ex.type === 'reps' && ex.measure === 'weights';
-
-export const weightCountOf = (ex: Exercise) => (ex.type === 'reps' ? Math.min(6, Math.max(2, ex.weightCount ?? ex.repScheme?.length ?? 2)) : 1);
-
-/** The several weights recorded for an exercise, padded to its weight count. */
-export function valuesOf(w: Workout, ex: Exercise): (number | null)[] {
-  const v = numbersOf(w.results[ex.id]) ?? [];
-  return Array.from({ length: weightCountOf(ex) }, (_, i) => v[i] ?? null);
+/**
+ * Entry `i`'s value in another workout. Entries pair up by kind: the second weight here
+ * reads the second weight there, whatever else is listed around it.
+ */
+export function matchingValueAt(from: Workout | undefined, ex: Exercise, i: number): RecordValue {
+  const match = matchingExercise(from, ex);
+  if (!from || !match) return null;
+  const kind = ex.record[i];
+  const nth = ex.record.slice(0, i).filter((k) => k === kind).length;
+  const j = match.record.map((k, n) => (k === kind ? n : -1)).filter((n) => n >= 0)[nth];
+  return j === undefined ? null : (from.results[match.id]?.values?.[j] ?? null);
 }
 
-export function matchingValues(from: Workout | undefined, ex: Exercise): (number | null)[] | undefined {
-  if (!from) return undefined;
-  const flat = flatten(from.items).filter((f) => recordsWeights(f.ex));
-  const match = flat.find((f) => f.ex.id === ex.id) ?? flat.find((f) => f.ex.name === ex.name);
-  return match ? numbersOf(from.results[match.ex.id]) : undefined;
-}
-
-export const fmtValues = (values: (number | null)[]) => values.map((v) => (v === null ? '–' : fmtNum(v))).join(' / ');
-
-export const recordsText = (ex: Exercise) => ex.type === 'reps' && ex.measure === 'text';
-
-/** Text recorded for the matching exercise (same id, else same name) in another workout. */
-export function matchingText(from: Workout | undefined, ex: Exercise): string | undefined {
-  if (!from) return undefined;
-  const flat = flatten(from.items).filter((f) => recordsText(f.ex));
-  const match = flat.find((f) => f.ex.id === ex.id) ?? flat.find((f) => f.ex.name === ex.name);
-  return match ? textOf(from.results[match.ex.id]) : undefined;
-}
-
-/** Copies every recorded value from `from`. Returns how many were copied. */
+/** Copies every recorded value from `from`. Returns how many exercises got values. */
 export function copyValues(w: Workout, from: Workout): number {
   let n = 0;
   for (const { ex } of flatten(w.items)) {
     // Activities record what happened that day, so there is nothing to carry over.
-    if (recordsWeights(ex)) {
-      const v = matchingValues(from, ex);
-      if (!v?.some((x) => x !== null)) continue;
-      resultOf(w, ex.id).recorded = v.slice(0, weightCountOf(ex));
-      copyDumbbells(w, from, ex);
-      n++;
-      continue;
-    }
-    if (recordsText(ex)) {
-      const t = matchingText(from, ex);
-      if (t === undefined) continue;
-      resultOf(w, ex.id).recorded = t;
-      n++;
-      continue;
-    }
-    if (unitOf(ex) === null || ex.type === 'activity') continue;
-    const v = matchingValue(from, ex);
-    if (v === undefined) continue;
-    resultOf(w, ex.id).recorded = v;
+    if (ex.type === 'activity') continue;
+    const values = ex.record.map((_, i) => matchingValueAt(from, ex, i));
+    if (!values.some((v) => v !== null)) continue;
+    resultOf(w, ex.id).values = values;
     if (recordsKg(ex)) copyDumbbells(w, from, ex);
     n++;
   }
@@ -435,35 +424,19 @@ const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, 
  * Finished exercises whose name contains every word of the query, grouped by
  * exercise name. Groups and entries are newest first.
  */
-/** Sets and reps alone, e.g. "3 × 5", leaving out what gets recorded (shown elsewhere as a unit or value). */
-export const describePlan = (ex: Exercise, inSuperset = false) =>
-  describe(ex, inSuperset).replace(/ · (weight|time|notes|\d+ weights)(?= · |$)/, '');
+/** Sets and reps alone, e.g. "3 × 5", leaving out what gets recorded (shown elsewhere as values). */
+export const describePlan = (ex: Exercise, inSuperset = false) => describe(ex, inSuperset, false);
 
-/**
- * What was recorded for an exercise, in a few words: "42.5 kg", "10 / 12.5 kg",
- * "1min 10s", "5.4 km", "30 times", or a note. Empty when nothing was recorded.
- */
-export function fmtRecorded(ex: Exercise, r: Result | undefined): string {
-  if (!r) return '';
-  if (ex.type === 'activity') {
-    const n = numberOf(r);
-    if (n === undefined) return '';
-    return ex.measure === 'time' ? formatDuration(n * 60) : `${fmtNum(n)} ${activityAmount(ex).unit}`;
-  }
-  if (recordsText(ex)) return textOf(r) ?? '';
-  if (recordsWeights(ex)) { const vs = numbersOf(r); return vs?.some((v) => v !== null) ? `${fmtValues(vs)} kg` : ''; }
-  const unit = unitOf(ex);
-  const n = numberOf(r);
-  if (!unit || n === undefined) return '';
-  return unit === 's' ? formatDuration(n) : `${fmtNum(n)} ${unit}`;
-}
-
-/** The number to sort a result by: its weight, time, count or distance; the heaviest of several weights. */
-export function entryValue({ result: r }: SearchEntry): number | undefined {
-  const n = numberOf(r);
-  if (n !== undefined) return n;
-  const values = numbersOf(r)?.filter((v): v is number => v !== null) ?? [];
-  return values.length ? Math.max(...values) : undefined;
+/** The number to sort a result by: the heaviest weight, else the first number, else the hardest grade. */
+export function entryValue({ ex, result: r }: SearchEntry): number | undefined {
+  const vs = valuesFor(ex, r);
+  const weights = vs.filter((v, i): v is number => ex.record[i] === 'weight' && typeof v === 'number');
+  if (weights.length) return Math.max(...weights);
+  const i = vs.findIndex((v, n) => typeof v === 'number' && isNumberKind(ex.record[n]));
+  if (i >= 0) return vs[i] as number;
+  const g = ex.record.findIndex((k, n) => isGradeKind(k) && typeof vs[n] === 'string');
+  if (g >= 0) return gradeRank(ex.record[g] as 'route' | 'boulder', vs[g] as string);
+  return undefined;
 }
 
 export type SearchSort = 'date' | 'value';

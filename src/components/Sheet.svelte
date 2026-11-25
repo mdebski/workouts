@@ -3,7 +3,8 @@
   import { closeDialog, isBackdropClick } from '../lib/toplayer.ts';
 
   /** focusSheet: opening focuses the sheet itself, not its first field, so the keyboard stays down. */
-  let { open = $bindable(false), label, focusSheet = false, children }: { open: boolean; label: string; focusSheet?: boolean; children: Snippet } = $props();
+  /** full: takes the whole screen, for longer forms whose height changes as you fill them in. */
+  let { open = $bindable(false), label, focusSheet = false, full = false, children }: { open: boolean; label: string; focusSheet?: boolean; full?: boolean; children: Snippet } = $props();
   let el: HTMLDialogElement;
 
   $effect(() => {
@@ -20,6 +21,7 @@
   bind:this={el}
   tabindex={focusSheet ? -1 : undefined}
   class="sheet"
+  class:full
   closedby="any"
   aria-label={label}
   onclose={() => {

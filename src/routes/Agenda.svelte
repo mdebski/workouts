@@ -11,7 +11,8 @@
   import MainTabs from '../components/MainTabs.svelte';
   import AddButton from '../components/AddButton.svelte';
   import { db } from '../lib/state.svelte.ts';
-  import { flatten, fmtRecorded, hasProgress, slotInfo, statusOf } from '../lib/core.ts';
+  import { flatten, hasProgress, slotInfo, statusOf } from '../lib/core.ts';
+  import { fmtRecorded } from '../lib/record.ts';
   import { addDays, diffDays, fmtMonth, fmtWeekday, isoWeek, today as todayISO } from '../lib/dates.ts';
   import type { Workout } from '../lib/types.ts';
 

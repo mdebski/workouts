@@ -1,7 +1,8 @@
 <script lang="ts">
   import Icon from '../components/Icon.svelte';
   import { db, getProgramme } from '../lib/state.svelte.ts';
-  import { numbersOf, textOf, describePlan, isLogged, fmtValues, recordsWeights, flatten, fmtNum, statusOf, unitOf, valueOf } from '../lib/core.ts';
+  import { describePlan, isLogged, flatten, statusOf } from '../lib/core.ts';
+  import { fmtRecorded, recordUnits } from '../lib/record.ts';
   import { fmtShort, today as todayISO } from '../lib/dates.ts';
   import type { Exercise, Item, Workout } from '../lib/types.ts';
 
@@ -61,28 +62,25 @@
       <th {scope} class="date-head" class:missed-col={!isLogged(w)} class:today={w.date === today}><a href="#/w/{w.id}">{fmtShort(w.date)}</a>{#if !isLogged(w)}<span class="sr"> (missed)</span>{/if}</th>
     {/snippet}
     {#snippet nameHead(row: Row, scope: 'col' | 'row')}
-      {@const unit = unitOf(row.ex)}
-      {@const reps = describePlan(row.ex, row.inSuperset).replace(/^Activity · record .*$/, '')}
-      {@const shownUnit = unit && unit !== '×' ? unit : ''}
-      <th {scope} class="name-head">{row.ex.name}<span class="muted plan">{[reps, shownUnit].filter(Boolean).join('; ')}</span></th>
+      {@const reps = describePlan(row.ex, row.inSuperset).replace(/^Activity$/, '')}
+      <th {scope} class="name-head">{row.ex.name}<span class="muted plan">{[reps, recordUnits(row.ex.record)].filter(Boolean).join('; ')}</span></th>
     {/snippet}
     {#snippet cell(w: Workout, { ex }: Row)}
       {#if !isLogged(w)}
         <td class="missed-cell"><span class="sr">Missed</span></td>
       {:else}
-        {@const unit = unitOf(ex)}
         {@const present = flatten(w.items).find((f) => f.ex.id === ex.id)}
         {@const r = w.results[ex.id]}
         <td class={r?.feel ?? ''}>
           {#if r?.dumbbells}<span class="db" title="Dumbbells: weight per dumbbell"><Icon name="dumbbell" size={14} /></span><span class="sr">Dumbbells, </span>{/if}
           {#if !present}
             <span class="muted" aria-label="Not in this workout">·</span>
-          {:else if recordsWeights(present.ex) && numbersOf(r)?.some((v) => v !== null)}
-            {fmtValues(numbersOf(r)!)}
-          {:else if textOf(r)}
-            <span class="text" title={textOf(r)}>{textOf(r)}</span>
-          {:else if unit && (valueOf(w, present.ex) !== undefined || present.ex.type === 'activity')}
-            {fmtNum(valueOf(w, present.ex) ?? 0)}
+          {:else if fmtRecorded(present.ex, r)}
+            <!-- Units only when the cell mixes kinds; one kind's unit is in the row's heading. -->
+            {@const text = fmtRecorded(present.ex, r, new Set(present.ex.record).size > 1)}
+            <span class="text" title={text}>{text}</span>
+          {:else if present.ex.type === 'activity'}
+            <span class="muted">–</span>
           {:else if (r?.setsDone ?? 0) >= present.sets}
             <Icon name="check" size={16} /><span class="sr">Done</span>
           {:else}
@@ -117,6 +115,8 @@
   <div class="card"><p><strong>No finished workouts yet</strong></p><p class="muted">Each one you finish becomes a column here.</p></div>
 {/if}
 
+{#if programme?.description}<p class="about">{programme.description}</p>{/if}
+
 <style>
   .lead { margin: 0 0.25rem 0.75rem; }
   .scroller { overflow: auto; max-width: 100%; border-radius: var(--radius); }
@@ -136,8 +136,7 @@
   /* The exercise names are plain labels: no rounded cell, just the page colour so values scroll under them. */
   tbody th, thead th:first-child { position: sticky; left: 0; background: var(--bg); border-radius: 0; text-align: left; max-width: 9rem; white-space: normal; z-index: 2; }
   td { background: var(--card); min-width: 3.75rem; }
-  /* Missed workouts: struck-through date and a red slash through each cell, as in the agenda. */
-  .missed-col a { color: var(--bad); text-decoration: line-through; }
+  /* Missed workouts: a red slash through each cell, as in the agenda; the date stays plain. */
   /* Today's workout stands out among the dates. */
   th.today a { color: var(--accent-ink); background: var(--accent); border-radius: 8px; padding: 0.125rem 0.375rem; text-decoration: none; }
   /* Sets and reps, then the unit, on their own line under the name: "3 × 5; kg". */
@@ -153,6 +152,8 @@
   .failed { --feel: var(--bad); }
   .db { display: inline-flex; vertical-align: -0.125em; margin-inline-end: 0.125rem; opacity: 0.8; }
   td :global(.muted) { font-size: inherit; }
+  /* The programme's description, under the table. */
+  .about { margin: 1.25rem 0.25rem 0; white-space: pre-line; overflow-wrap: anywhere; color: var(--muted); }
   .legend { display: flex; flex-wrap: wrap; gap: 0.25rem 0.875rem; margin-top: 0.75rem; }
   .key { display: inline-flex; align-items: center; gap: 0.375rem; }
   .key.missed-key { color: var(--bad); }

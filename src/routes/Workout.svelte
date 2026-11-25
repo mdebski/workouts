@@ -2,14 +2,15 @@
   import { onMount, untrack } from 'svelte';
   import Icon from '../components/Icon.svelte';
   import { formatDuration } from '../lib/duration.ts';
-  import ValueSheet from '../components/ValueSheet.svelte';
+  import RecordSheet from '../components/RecordSheet.svelte';
   import { db, getProgramme, getWorkout, removeWorkout } from '../lib/state.svelte.ts';
-  import { clone, hasRecorded as resultHasRecorded, numberOf, numbersOf, textOf, activityAmount, describePlan, exerciseFinished, recordsKg, valuesOf, matchingValues, recordsWeights, fmtValues, copyValues, matchingText, recordsText, fmtNum, describe, flatten, fmtSecs, fmtValue, isComplete, matchingValue, neighbours, previousDone, resultOf, statusOf, unitOf, valueOf, type Unit } from '../lib/core.ts';
+  import { clone, hasRecorded as resultHasRecorded, describePlan, exerciseFinished, recordsKg, copyValues, fmtNum, flatten, fmtSecs, isComplete, matchingValueAt, neighbours, previousDone, resultOf, setValueAt, statusOf, valueAt } from '../lib/core.ts';
+  import { fmtOne, gradeRank, isGradeKind, isNumberKind, kindLabel, paceOf } from '../lib/record.ts';
   import { fmtDay, fmtLong, isISODate, today as todayISO } from '../lib/dates.ts';
   import { go } from '../lib/router.svelte.ts';
   import { timer, type Phase } from '../lib/timer.svelte.ts';
   import { keepAwake } from '../lib/wakelock.ts';
-  import type { Exercise, Feel, Item, Rest, Superset, Workout } from '../lib/types.ts';
+  import type { Exercise, Feel, Item, RecordKind, RecordValue, Rest, Superset, Workout } from '../lib/types.ts';
 
   /** back: where the back arrow goes, when the workout was opened from search. */
   let { id, back }: { id: string; back?: string } = $props();
@@ -29,14 +30,15 @@
     { id: 'hard', label: 'Hard' },
     { id: 'failed', label: 'Not finished' },
   ];
-  const STEPS: Record<Exclude<Unit, 'kg'>, number[]> = { s: [5, 10, 30], min: [1, 5, 10], km: [0.5, 1, 5], '×': [1, 5, 10] };
+  /** The − / + steps in the value sheet. Times in seconds: short for holds, longer for activities. */
+  const stepsFor = (ex: Exercise, k: RecordKind): number[] =>
+    k === 'weight' ? db.settings.weightSteps : k === 'time' ? (ex.type === 'activity' ? [60, 300, 600] : [5, 10, 30]) : k === 'distance' ? [0.5, 1, 5] : [1, 5, 10];
 
   let notesOpen = $state(false);
   let moreOpen = $state(false);
+  /** The sheet for everything recorded for one exercise, and which exercise it's open for. */
   let sheetOpen = $state(false);
   let sheetFor = $state('');
-  /** Which of several weights the sheet edits, or -1 for the single value. */
-  let sheetSlot = $state(-1);
   let copied = $state('');
   const sheetEx = $derived(found ? flatten(found.items).find((f) => f.ex.id === sheetFor)?.ex : undefined);
 
@@ -53,15 +55,20 @@
     if (!isComplete(w)) w.startedAt ??= new Date().toISOString();
   };
 
-  function openValue(ex: Exercise, slot = -1) {
+  function openValue(ex: Exercise) {
     sheetFor = ex.id;
-    sheetSlot = slot;
     sheetOpen = true;
   }
 
-  function setFeel(w: Workout, ex: Exercise, feel: Feel | undefined) {
-    const r = resultOf(w, ex.id);
-    r.feel = feel;
+  /** Done in the record sheet: every value, how it felt and the dumbbell flag at once. */
+  function saveSheet(w: Workout, ex: Exercise, r: { values: RecordValue[]; feel?: Feel; dumbbells: boolean }) {
+    r.values.forEach((v, i) => setValueAt(w, ex, i, v));
+    const res = resultOf(w, ex.id);
+    if (r.feel) res.feel = r.feel;
+    else delete res.feel;
+    if (r.dumbbells && ex.record.includes('weight')) res.dumbbells = true;
+    else delete res.dumbbells;
+    if (ex.type === 'activity') res.setsDone = 0;
     touch(w);
   }
 
@@ -132,10 +139,11 @@
     timer.start([{ label: `Get ready · ${ex.name}`, kind: 'prepare', seconds: 3 }, ...phases], ex.id);
   }
 
-  /** Hold (e.g. plank): counts down the recorded time, then ticks the set. */
+  /** Hold (e.g. plank): counts down the recorded time (the first one listed), then ticks the set. */
   function runHold(w: Workout, ex: Exercise, sets: number, ss?: Superset) {
-    const seconds = valueOf(w, ex);
-    if (!seconds) return openValue(ex);
+    const slot = ex.record.indexOf('time');
+    const seconds = valueAt(w, ex, slot);
+    if (typeof seconds !== 'number' || !seconds) return openValue(ex);
     touch(w);
     timer.start([{ label: `Get ready · ${ex.name}`, kind: 'prepare', seconds: 3 }, { label: `Hold · ${ex.name}`, kind: 'work', seconds, onEnd: () => {
       const r = resultOf(w, ex.id);
@@ -143,74 +151,72 @@
     } }], ex.id);
   }
 
-  function record(w: Workout, ex: Exercise | undefined, value: number) {
+  /** Sets one entry. An activity's done-ness comes from its values alone, so no ticks are kept for it. */
+  function record(w: Workout, ex: Exercise | undefined, slot: number, value: RecordValue) {
     if (!ex) return;
-    const r = resultOf(w, ex.id);
-    r.recorded = value;
+    setValueAt(w, ex, slot, value);
+    if (ex.type === 'activity') resultOf(w, ex.id).setsDone = 0;
     touch(w);
-    // An activity is done once any amount is recorded (every round, inside a superset), and undone at zero.
-    if (ex.type === 'activity') {
-      const sets = flatten(w.items).find((f) => f.ex.id === ex.id)?.sets ?? 1;
-      const ss = w.items.find((it): it is Superset => it.type === 'superset' && it.items.some((e) => e.id === ex.id));
-      const was = r.setsDone;
-      r.setsDone = value > 0 ? sets : 0;
-      if (r.setsDone > was) afterTick(w, ex, sets, ss);
-    }
   }
 
-  /** The − and + next to an activity's amount: one rep, or one minute. */
+  /** How an activity's single amount is nudged by − / +: one, one minute, or half a km. */
+  const nudgeStep = (k: RecordKind) => (k === 'time' ? 60 : k === 'distance' ? 0.5 : 1);
+  const nudgeLabel = (k: RecordKind) => (k === 'time' ? 'one minute' : k === 'distance' ? '0.5 km' : 'one');
+
   function nudge(w: Workout, ex: Exercise, d: 1 | -1) {
-    const next = (valueOf(w, ex) ?? 0) + d * activityAmount(ex).step;
-    record(w, ex, Math.max(0, Math.round(next * 100) / 100));
-  }
-
-  function recordSlot(w: Workout, ex: Exercise, slot: number, value: number) {
-    const r = resultOf(w, ex.id);
-    const values = valuesOf(w, ex);
-    values[slot] = value;
-    r.recorded = values;
-    touch(w);
+    const k = ex.record[0];
+    const now = valueAt(w, ex, 0);
+    const next = (typeof now === 'number' ? now : 0) + d * nudgeStep(k);
+    record(w, ex, 0, Math.max(0, Math.round(next * 100) / 100));
   }
 
   const minStep = $derived(Math.min(...db.settings.weightSteps));
 
   /** The quick + next to a weight: one smallest step up, starting from last time's weight if none is set yet. */
-  function bumpWeight(w: Workout, ex: Exercise, d: 1 | -1) {
-    const base = valueOf(w, ex) ?? matchingValue(last, ex) ?? 0;
-    record(w, ex, Math.max(0, Math.round((base + d * minStep) * 100) / 100));
+  function bumpWeight(w: Workout, ex: Exercise, slot: number, d: 1 | -1) {
+    const now = valueAt(w, ex, slot);
+    const before = matchingValueAt(last, ex, slot);
+    const base = typeof now === 'number' ? now : typeof before === 'number' ? before : 0;
+    record(w, ex, slot, Math.max(0, Math.round((base + d * minStep) * 100) / 100));
   }
 
   /**
-   * This workout's weight next to last time's, e.g. "Same as last" or "1.25 kg more than last".
-   * With several weights, the heaviest is compared. Empty until both are known.
-   * Only between workouts of the same programme: one-off workouts aren't compared.
+   * How this workout compares with last time, on the first thing the exercise records:
+   * "1.25 kg added", "Same as last", "1 grade harder"… With several weights, the heaviest
+   * counts. Empty until both are known, and only between workouts of the same programme.
    */
   function vsLast(w: Workout, ex: Exercise): string {
-    if (!last || !w.programmeId || last.programmeId !== w.programmeId) return '';
-    if (recordsText(ex)) {
-      const now = textOf(w.results[ex.id])?.trim();
-      const before = matchingText(last, ex)?.trim();
-      if (!now || !before) return '';
-      return now === before ? 'Same as last' : `Last time: ${before}`;
+    if (!last || !w.programmeId || last.programmeId !== w.programmeId || !ex.record.length) return '';
+    const k = ex.record[0];
+    const slots = ex.record.map((r, i) => (r === k ? i : -1)).filter((i) => i >= 0);
+    if (k === 'note') {
+      const now = valueAt(w, ex, 0);
+      const before = matchingValueAt(last, ex, 0);
+      if (typeof now !== 'string' || typeof before !== 'string' || !now.trim() || !before.trim()) return '';
+      return now.trim() === before.trim() ? 'Same as last' : `Last time: ${before.trim()}`;
     }
-    const heaviest = (vs: (number | null)[] | undefined) => {
-      const ns = (vs ?? []).filter((v): v is number => v !== null);
-      return ns.length ? Math.max(...ns) : undefined;
-    };
-    const now = recordsWeights(ex) ? heaviest(numbersOf(w.results[ex.id])) : numberOf(w.results[ex.id]);
-    const before = recordsWeights(ex) ? heaviest(matchingValues(last, ex)) : matchingValue(last, ex);
+    if (isGradeKind(k)) {
+      const now = valueAt(w, ex, 0);
+      const before = matchingValueAt(last, ex, 0);
+      if (typeof now !== 'string' || typeof before !== 'string') return '';
+      const diff = gradeRank(k, now) - gradeRank(k, before);
+      if (diff === 0) return 'Same as last';
+      return `${Math.abs(diff)} ${Math.abs(diff) === 1 ? 'grade' : 'grades'} ${diff > 0 ? 'harder' : 'easier'}`;
+    }
+    const nums = (vs: RecordValue[]) => vs.filter((v): v is number => typeof v === 'number');
+    const pick = (vs: number[]) => (vs.length ? (k === 'weight' ? Math.max(...vs) : vs[0]) : undefined);
+    const now = pick(nums(slots.map((i) => valueAt(w, ex, i))));
+    const before = pick(nums(slots.map((i) => matchingValueAt(last, ex, i))));
     if (now === undefined || before === undefined) return '';
     const diff = Math.round((now - before) * 100) / 100;
     if (diff === 0) return 'Same as last';
     const up = diff > 0;
     const n = Math.abs(diff);
-    switch (unitOf(ex)) {
-      case 'kg': return `${fmtNum(n)} kg ${up ? 'added' : 'removed'}`;
-      case 's': return `${formatDuration(n)} ${up ? 'longer' : 'shorter'} than last`;
-      case 'min': return `${formatDuration(n * 60)} ${up ? 'longer' : 'shorter'} than last`;
-      case 'km': return `${fmtNum(n)} km ${up ? 'further' : 'less'} than last`;
-      case '×': return `${fmtNum(n)} ${up ? 'more' : 'fewer'} than last`;
-      default: return '';
+    switch (k) {
+      case 'weight': return `${fmtNum(n)} kg ${up ? 'added' : 'removed'}`;
+      case 'time': return `${formatDuration(n)} ${up ? 'longer' : 'shorter'} than last`;
+      case 'distance': return `${fmtNum(n)} km ${up ? 'further' : 'less'} than last`;
+      default: return `${fmtNum(n)} ${up ? 'more' : 'fewer'} than last`;
     }
   }
 
@@ -225,30 +231,19 @@
     let n = 0;
     for (const { ex } of flatten(w.items)) {
       if (!recordsKg(ex)) continue;
-      if (recordsWeights(ex)) {
-        const now = valuesOf(w, ex);
-        const before = matchingValues(last, ex) ?? [];
-        const next = now.map((v, i) => (v ?? before[i] ?? null) === null ? null : step((v ?? before[i])!));
-        if (next.some((v) => v !== null)) {
-          resultOf(w, ex.id).recorded = next;
-          n++;
-        }
-      } else {
-        const base = valueOf(w, ex) ?? matchingValue(last, ex);
-        if (base === undefined) continue;
-        resultOf(w, ex.id).recorded = step(base);
-        n++;
-      }
+      let changed = false;
+      ex.record.forEach((k, i) => {
+        if (k !== 'weight') return;
+        const now = valueAt(w, ex, i);
+        const base = typeof now === 'number' ? now : matchingValueAt(last, ex, i);
+        if (typeof base !== 'number') return;
+        setValueAt(w, ex, i, step(base));
+        changed = true;
+      });
+      if (changed) n++;
     }
     if (n) touch(w);
     copied = n ? `Added ${fmtNum(minStep)} kg to ${n} ${n === 1 ? 'exercise' : 'exercises'}.` : 'No weights to add to yet.';
-  }
-
-  function setDumbbells(w: Workout, ex: Exercise, on: boolean) {
-    const r = resultOf(w, ex.id);
-    if (on) r.dumbbells = true;
-    else delete r.dumbbells;
-    touch(w);
   }
 
   /** Whether anything was entered for this workout: weights, times, counts, notes or the dumbbell flag. */
@@ -261,7 +256,7 @@
     for (const { ex } of flatten(w.items)) {
       const r = w.results[ex.id];
       if (!r) continue;
-      delete r.recorded;
+      delete r.values;
       delete r.dumbbells;
       // An activity is done only when an amount is recorded.
       if (ex.type === 'activity') r.setsDone = 0;
@@ -379,6 +374,14 @@
     <span class="next">{#if around.next}<a class="btn small" href="#/w/{around.next.id}{keepBack}">{fmtDay(around.next.date)} <Icon name="right" size={18} /></a>{/if}</span>
   </nav>
 
+  {#if w.programmeId && getProgramme(w.programmeId)?.description}
+    <!-- The programme's description, folded away until you want it. -->
+    <details class="about">
+      <summary>About {getProgramme(w.programmeId)?.name}</summary>
+      <p>{getProgramme(w.programmeId)?.description}</p>
+    </details>
+  {/if}
+
   <div class="row tools">
     {#if last}<button class="btn small grow" onclick={() => copyLast(w)} title="Copy values from {fmtDay(last.date)}"><Icon name="copy" size={16} /> Copy last</button>{/if}
     {#if hasKg}<button class="btn small grow" onclick={() => bumpAll(w)} title="Add {fmtNum(minStep)} kg to every weight"><Icon name="plus" size={16} /> {fmtNum(minStep)} kg</button>{/if}
@@ -410,12 +413,26 @@
     {#if w.results[ex.id]?.dumbbells}<span class="db-mark" title="Dumbbells: weight per dumbbell"><Icon name="dumbbell" size={14} /><span class="sr">, dumbbells</span></span>{/if}
   {/snippet}
 
+  <!-- One recorded value as a tappable chip: its value, or what it is while empty. -->
+  {#snippet valueChip(ex: Exercise, i: number)}
+    {@const k = ex.record[i]}
+    {@const v = valueAt(w, ex, i)}
+    {@const same = ex.record.filter((r) => r === k).length > 1}
+    {@const what = same ? `${kindLabel(k).toLowerCase()} ${ex.record.slice(0, i + 1).filter((r) => r === k).length}` : kindLabel(k).toLowerCase()}
+    {@const shown = v === null ? '' : fmtOne(k, v)}
+    <button class="chip" class:unset={v === null} aria-label="{ex.name}, {what}: {shown || 'not set'}. Change" onclick={() => openValue(ex)}>
+      {shown || (k === 'weight' ? '— kg' : k === 'distance' ? '— km' : isGradeKind(k) ? (same ? `Grade ${ex.record.slice(0, i + 1).filter((r) => r === k).length}` : 'Grade') : kindLabel(k))}{#if k === 'weight'}{@render dumbbellMark(ex)}{/if}
+    </button>
+  {/snippet}
+
   {#snippet exercise(ex: Exercise, sets: number, ss?: Superset)}
     {@const r = w.results[ex.id]}
     {@const done = r?.setsDone ?? 0}
-    {@const unit = unitOf(ex)}
-    {@const feel = FEELS.find((f) => f.id === r?.feel)}
-    <article class="card ex" class:complete={done >= sets} class:running={timer.owner === ex.id}>
+    {@const singleWeight = ex.record.length === 1 && ex.record[0] === 'weight'}
+    {@const bigAmount = ex.type === 'activity' && ex.record.length === 1 && isNumberKind(ex.record[0])}
+    {@const holdSlot = ex.type === 'reps' ? ex.record.indexOf('time') : -1}
+    {@const pace = paceOf(ex, r)}
+    <article class="card ex" class:complete={exerciseFinished(r, ex, sets)} class:running={timer.owner === ex.id}>
       <div class="head">
         {#if ex.type !== 'activity'}
           <div class="progress" role="group" aria-label="{ex.name}: {done} of {sets} {ss || ex.type === 'timed' ? 'rounds' : 'sets'} done">
@@ -426,7 +443,7 @@
             {#if sets > 1}<button class="adj" aria-label="One more {ss || ex.type === 'timed' ? 'round' : 'set'}" aria-disabled={done >= sets} onclick={() => stepSets(w, ex, sets, 1, ss)}>+</button>{/if}
           </div>
         {/if}
-        <div class="title" class:inline={ex.type === 'activity'}>
+        <div class="title" class:inline={bigAmount}>
           <h3>{ex.name}</h3>
           <p class="desc">{plan(ex, !!ss)}{ex.description ? ` · ${ex.description}` : ''}</p>
         </div>
@@ -442,45 +459,48 @@
         {:else if done < sets}
           {#if ex.type === 'timed'}
             <button class="icon-btn start" aria-label="Start {ex.name}" onclick={() => runIntervals(w, ex, sets, ss)}><Icon name="play" size={18} /></button>
-          {:else if ex.type === 'reps' && ex.measure === 'time'}
+          {:else if holdSlot >= 0}
             <button class="icon-btn start" aria-label="Start a {ex.name} hold" onclick={() => runHold(w, ex, sets, ss)}><Icon name="play" size={18} /></button>
           {/if}
         {/if}
-        {#if recordsKg(ex) && !recordsWeights(ex)}
-          <button class="adj" aria-label="{ex.name}: take off {fmtNum(minStep)} kg" aria-disabled={!(valueOf(w, ex) ?? matchingValue(last, ex))} onclick={() => bumpWeight(w, ex, -1)}>−</button>
-        {/if}
-        {#if unit && ex.type !== 'activity' && !recordsWeights(ex)}<button class="chip" class:unset={valueOf(w, ex) === undefined} aria-label="{ex.name}: {fmtValue(valueOf(w, ex), unit)}. Change" onclick={() => openValue(ex)}>{fmtValue(valueOf(w, ex), unit)}{#if recordsKg(ex)}{@render dumbbellMark(ex)}{/if}</button>{/if}
-        {#if recordsKg(ex) && !recordsWeights(ex)}
-          <button class="adj" aria-label="{ex.name}: add {fmtNum(minStep)} kg" onclick={() => bumpWeight(w, ex, 1)}>+</button>
+        {#if singleWeight}
+          {@const now = valueAt(w, ex, 0)}
+          <button class="adj" aria-label="{ex.name}: take off {fmtNum(minStep)} kg" aria-disabled={!(typeof now === 'number' ? now : matchingValueAt(last, ex, 0))} onclick={() => bumpWeight(w, ex, 0, -1)}>−</button>
+          {@render valueChip(ex, 0)}
+          <button class="adj" aria-label="{ex.name}: add {fmtNum(minStep)} kg" onclick={() => bumpWeight(w, ex, 0, 1)}>+</button>
         {/if}
         </div>
-        {#if !recordsWeights(ex) && ex.type !== 'activity'}{@render vs(ex)}{/if}
+        {#if singleWeight}{@render vs(ex)}{/if}
         </div>
       </div>
-      {#if recordsWeights(ex)}
-        <div class="row weights" role="group" aria-label="{ex.name}: weights">
-          {#each valuesOf(w, ex) as v, i}
-            <button class="chip" class:unset={v === null} aria-label="{ex.name}, weight {i + 1}: {v === null ? 'not set' : `${fmtNum(v)} kg`}. Change" onclick={() => openValue(ex, i)}>{v === null ? '—' : fmtNum(v)}</button>
-          {/each}
-          <span class="muted">kg</span>{@render dumbbellMark(ex)}
+      {#if bigAmount}
+        {@const k = ex.record[0]}
+        {@const v = valueAt(w, ex, 0)}
+        {@const n = typeof v === 'number' ? v : 0}
+        <div class="amount" role="group" aria-label="{ex.name}, {kindLabel(k).toLowerCase()}">
+          <button class="step" aria-label="{nudgeLabel(k)} less" aria-disabled={!n} onclick={() => nudge(w, ex, -1)}><Icon name="minus" size={24} /></button>
+          <button class="value" aria-label="{fmtOne(k, n) || '0'}. Type a value" onclick={() => openValue(ex)}>
+            <span class="reading">{#if k === 'time'}<span class="num">{n ? formatDuration(n) : '0'}</span>{#if !n}<span class="unit">min</span>{/if}{:else}<span class="num">{fmtNum(n)}</span><span class="unit">{k === 'distance' ? 'km' : 'times'}</span>{/if}</span>
+          </button>
+          <button class="step" aria-label="{nudgeLabel(k)} more" onclick={() => nudge(w, ex, 1)}><Icon name="plus" size={24} /></button>
         </div>
         {@render vs(ex)}
-      {/if}
-      {#if recordsText(ex)}
-        {@const lastText = matchingText(last, ex)}
-        <textarea class="record" rows="1" aria-label="{ex.name}: note for this workout" placeholder={lastText ? `Last time: ${lastText}` : 'Note: band, grip, variation…'}
-          value={typeof r?.recorded === 'string' ? r.recorded : ''} oninput={(e) => { const res = resultOf(w, ex.id); if (e.currentTarget.value) res.recorded = e.currentTarget.value; else delete res.recorded; touch(w); }}></textarea>
-      {/if}
-      {#if ex.type === 'activity'}
-        {@const v = valueOf(w, ex) ?? 0}
-        {@const amt = activityAmount(ex)}
-        <div class="amount" role="group" aria-label="{ex.name}, {amt.unit}">
-          <button class="step" aria-label="{amt.stepLabel} less" aria-disabled={!v} onclick={() => nudge(w, ex, -1)}><Icon name="minus" size={24} /></button>
-          <button class="value" aria-label="{fmtValue(v, unit)}. Type a value" onclick={() => openValue(ex)}>
-            <span class="reading"><span class="num">{fmtNum(v)}</span><span class="unit">{amt.unit}</span></span>
-          </button>
-          <button class="step" aria-label="{amt.stepLabel} more" onclick={() => nudge(w, ex, 1)}><Icon name="plus" size={24} /></button>
-        </div>
+      {:else if !singleWeight && ex.record.length}
+        {@const chips = ex.record.map((k, i) => i).filter((i) => ex.record[i] !== 'note')}
+        {#if chips.length}
+          <div class="row values" role="group" aria-label="{ex.name}: recorded">
+            {#each chips as i (i)}{@render valueChip(ex, i)}{/each}
+            {#if pace}<span class="pace">{pace}</span>{/if}
+          </div>
+        {/if}
+        {#each ex.record as k, i (i)}
+          {#if k === 'note'}
+            {@const lastText = matchingValueAt(last, ex, i)}
+            {@const v = valueAt(w, ex, i)}
+            <textarea class="record" rows="1" aria-label="{ex.name}: note for this workout" placeholder={typeof lastText === 'string' ? `Last time: ${lastText}` : 'Note: band, grip, variation…'}
+              value={typeof v === 'string' ? v : ''} oninput={(e) => record(w, ex, i, e.currentTarget.value || null)}></textarea>
+          {/if}
+        {/each}
         {@render vs(ex)}
       {/if}
     </article>
@@ -511,7 +531,6 @@
     <button class="add-note" onclick={() => (notesOpen = true)}>Notes +</button>
   {/if}
 
-
   <details class="more" bind:open={moreOpen}>
     <summary><Icon name={moreOpen ? 'down' : 'right'} size={16} /> Move, copy or delete</summary>
     <label class="field"><span>{isComplete(w) ? 'Done on' : 'Planned for'}</span>
@@ -538,20 +557,16 @@
     </div>
   {/if}
 
-  {#if sheetEx && unitOf(sheetEx)}
-    {@const unit = unitOf(sheetEx)!}
-    <ValueSheet
+  {#if sheetEx}
+    <RecordSheet
       bind:open={sheetOpen}
-      name={sheetSlot >= 0 ? `${sheetEx.name} · weight ${sheetSlot + 1}` : sheetEx.name}
-      dumbbells={w.results[sheetEx.id]?.dumbbells}
-      ondumbbells={recordsKg(sheetEx) ? (on) => setDumbbells(w, sheetEx, on) : undefined}
+      ex={sheetEx}
+      values={sheetEx.record.map((_, i) => valueAt(w, sheetEx, i))}
+      last={sheetEx.record.map((_, i) => matchingValueAt(last, sheetEx, i))}
       feel={w.results[sheetEx.id]?.feel}
-      onfeel={(f) => setFeel(w, sheetEx, f)}
-      {unit}
-      value={sheetSlot >= 0 ? (valuesOf(w, sheetEx)[sheetSlot] ?? undefined) : (valueOf(w, sheetEx) ?? (sheetEx.type === 'activity' ? 0 : undefined))}
-      last={sheetSlot >= 0 ? (matchingValues(last, sheetEx)?.[sheetSlot] ?? undefined) : matchingValue(last, sheetEx)}
-      steps={unit === 'kg' ? db.settings.weightSteps : STEPS[unit]}
-      onset={(v) => (sheetSlot >= 0 ? recordSlot(w, sheetEx, sheetSlot, v) : record(w, sheetEx, v))}
+      dumbbells={w.results[sheetEx.id]?.dumbbells}
+      stepOf={(k) => (k === 'weight' ? minStep : stepsFor(sheetEx, k)[0])}
+      onsave={(r) => saveSheet(w, sheetEx, r)}
     />
   {/if}
 {/if}
@@ -614,9 +629,9 @@
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .chip.unset { background: transparent; box-shadow: inset 0 0 0 2px var(--line); color: var(--muted); }
 
-
-
-  .weights { flex-wrap: wrap; gap: 0.375rem; }
+  /* Everything recorded besides a single weight: a row of chips, with the pace after a time and a distance. */
+  .values { flex-wrap: wrap; gap: 0.375rem; align-items: center; margin-top: 0.125rem; }
+  .pace { font-size: 0.875rem; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
   .record { field-sizing: content; min-height: 2.75rem; resize: none; }
   .amount { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem; }
   /* Icons rather than − / + characters: font glyphs sit off-centre in a round button. */
@@ -636,12 +651,14 @@
   .rest-card .grow { flex: 1; }
   .ss-head { display: flex; align-items: center; gap: 0.375rem; color: var(--accent); font-size: 0.8125rem; font-weight: 600; margin: 0 0.375rem 0.5rem; }
 
-
   .notes { margin-top: 1rem; }
   .add-note { display: block; margin: 0.5rem 0; padding: 0.5rem 0.25rem; min-height: 2.75rem; border: none; background: none; color: var(--muted); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer; }
   .add-note:hover { color: var(--text); }
   textarea { field-sizing: content; min-height: 4rem; resize: vertical; }
   .more { margin-top: 1.5rem; color: var(--muted); }
+  .about { margin: 0.25rem 0 0.75rem; color: var(--muted); }
+  .about summary { min-height: 2.75rem; display: flex; align-items: center; padding: 0 0.25rem; cursor: pointer; font-size: 0.875rem; font-weight: 600; }
+  .about p { margin: 0 0.25rem 0.5rem; white-space: pre-line; overflow-wrap: anywhere; }
   .more summary { min-height: 2.75rem; display: flex; align-items: center; gap: 0.375rem; cursor: pointer; padding: 0 0.25rem; font-weight: 600; list-style: none; }
   .more summary::-webkit-details-marker { display: none; }
   .more > :not(summary) { margin-top: 0.5rem; }

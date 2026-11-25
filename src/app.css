@@ -137,6 +137,11 @@ dialog.sheet {
   transition-duration: 0.25s; transition-timing-function: ease-out;
   transition-behavior: allow-discrete;
 }
+/* Full screen: the whole height, so the content can change without the sheet jumping. */
+dialog.sheet.full {
+  height: 100dvh; max-height: 100dvh; max-width: 34rem; margin: 0 auto; border-radius: 0;
+  padding-top: calc(1rem + env(safe-area-inset-top));
+}
 dialog.sheet[open]:where(:not([data-closing])) {
   opacity: 1; translate: 0 0;
   @starting-style { opacity: 0; translate: 0 100%; }

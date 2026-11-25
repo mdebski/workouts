@@ -113,8 +113,8 @@ export function blankWorkout(date: string): Workout {
 export function copyOfWorkout(w: Workout): Workout {
   const results: Workout['results'] = {};
   for (const [id, r] of Object.entries(clone(w.results))) {
-    if (r.recorded === undefined) continue;
-    results[id] = { setsDone: 0, recorded: r.recorded, ...(r.dumbbells ? { dumbbells: true } : {}) };
+    if (!r.values) continue;
+    results[id] = { setsDone: 0, values: r.values, ...(r.dumbbells ? { dumbbells: true } : {}) };
   }
   return { id: uid(), name: w.name, emoji: w.emoji, date: '', items: clone(w.items), results };
 }

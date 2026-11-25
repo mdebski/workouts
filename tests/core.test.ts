@@ -1,19 +1,20 @@
 import { assert, test } from 'vitest';
 import { addDays, diffDays, isoWeek, weekday } from '../src/lib/dates.ts';
 import { describeEnd, describeRepeat, occurrences } from '../src/lib/schedule.ts';
-import { copyValues, deleteProgramme, programmeBackup, deleteProgrammeAndWorkouts, describe, isComplete, fmtRecorded, mergeData, exerciseNames, searchExercises, fmtValues, valuesOf, emptyData, flatten, migrate, neighbours, previousDone, slotInfo, statusOf, syncProgramme, topUp, HORIZON_DAYS } from '../src/lib/core.ts';
+import { copyValues, entryValue, matchingValueAt, deleteProgramme, programmeBackup, deleteProgrammeAndWorkouts, describe, isComplete, mergeData, exerciseNames, searchExercises, emptyData, flatten, migrate, neighbours, previousDone, slotInfo, statusOf, syncProgramme, topUp, HORIZON_DAYS } from '../src/lib/core.ts';
+import { fmtRecorded, valuesFor } from '../src/lib/record.ts';
 import type { Data, Exercise, Item, Programme, Schedule, Workout } from '../src/lib/types.ts';
 
 const take = <T>(g: Iterable<T>, n: number) => { const out: T[] = []; for (const v of g) { if (out.length >= n) break; out.push(v); } return out; };
 
 const items = (): Item[] => [
-  { id: 'pull', type: 'reps', name: 'Pull-ups', sets: 4, reps: 6, measure: 'weight', restBetweenSets: 90 },
+  { id: 'pull', type: 'reps', name: 'Pull-ups', sets: 4, reps: 6, record: ['weight'], restBetweenSets: 90 },
   { id: 'ss', type: 'superset', rounds: 3, items: [
-    { id: 'rows', type: 'reps', name: 'Rows', sets: 1, reps: 10, measure: 'weight' },
-    { id: 'plank', type: 'reps', name: 'Plank', sets: 1, reps: 1, measure: 'time' },
+    { id: 'rows', type: 'reps', name: 'Rows', sets: 1, reps: 10, record: ['weight'] },
+    { id: 'plank', type: 'reps', name: 'Plank', sets: 1, reps: 1, record: ['time'] },
   ] },
-  { id: 'hang', type: 'timed', name: 'Dead hang', reps: 6, workSec: 5, restSec: 5, trackWeight: false },
-  { id: 'warm', type: 'activity', name: 'Warm-up', measure: 'time' },
+  { id: 'hang', type: 'timed', name: 'Dead hang', reps: 6, workSec: 5, restSec: 5, record: [] },
+  { id: 'warm', type: 'activity', name: 'Warm-up', record: ['time'] },
 ];
 
 const programme = (schedule: Schedule): Programme => ({ id: 'p1', name: 'Pull day', emoji: '💪', items: items(), schedule: structuredClone(schedule), archived: false });
@@ -68,7 +69,7 @@ test('editing lays the schedule out again but keeps done workouts', () => {
   const d = withProgramme(p, '2026-11-02');
   const ws = mine(d);
   finish(ws[0]); Object.assign(ws[0], { completedAt: '2026-11-02T10:00:00Z' });
-  ws[0].results.pull = { setsDone: 4, recorded: 10 };
+  ws[0].results.pull = { setsDone: 4, values: [10] };
   const doneId = ws[0].id;
 
   // On the 9th: change the plan to Tue/Thu and rename an exercise.
@@ -89,7 +90,7 @@ test('a weight on its own does not start a workout, but survives a rebuild', () 
   const p = programme(mwf);
   const d = withProgramme(p, '2026-11-02');
   const w = mine(d)[0];
-  w.results.pull = { setsDone: 0, recorded: 20 };
+  w.results.pull = { setsDone: 0, values: [20] };
   assert.strictEqual(statusOf(w, '2026-11-02'), 'today');
   assert.strictEqual(statusOf(w, '2026-11-09'), 'missed');
   syncProgramme(d, p, '2026-11-09');
@@ -150,7 +151,7 @@ test('old activity targets become recorded values', () => {
     { id: 'c', date: '2026-11-04', name: 'x', emoji: 'x', status: 'planned', items: [act('w')], results: {} },
   ] };
   const d = migrate(old);
-  assert.deepEqual(d.workouts.map((w) => w.results.w?.recorded), [15, 20, undefined]);
+  assert.deepEqual(d.workouts.map((w) => w.results.w?.values), [[900], [1200], undefined], 'minutes become seconds');
   assert.ok(d.workouts.every((w) => !('target' in w.items[0])));
 });
 
@@ -182,7 +183,7 @@ test('previous/next and copying values', () => {
   const d = withProgramme(programme(mwf), '2026-11-02');
   const [a, b, c] = mine(d);
   finish(a); Object.assign(a, { completedAt: '2026-11-02T10:00:00Z' });
-  a.results = { pull: { setsDone: 4, recorded: 12.5, feel: 'hard' }, plank: { setsDone: 3, recorded: 45 }, warm: { setsDone: 1 } };
+  a.results = { pull: { setsDone: 4, values: [12.5], feel: 'hard' }, plank: { setsDone: 3, values: [45] }, warm: { setsDone: 1 } };
   assert.strictEqual(neighbours(d, b).prev, a);
   assert.strictEqual(neighbours(d, b).next, c);
   assert.strictEqual(neighbours(d, a).prev, undefined);
@@ -192,9 +193,9 @@ test('previous/next and copying values', () => {
   // Exercise re-created with a new id still matches by name.
   (c.items[0] as { id: string }).id = 'pull-new';
   assert.strictEqual(copyValues(c, a), 2);
-  assert.strictEqual(c.results['pull-new'].recorded, 12.5);
+  assert.deepEqual(c.results['pull-new'].values, [12.5]);
   assert.strictEqual(c.results['pull-new'].feel, undefined, 'feel is not copied');
-  assert.strictEqual(c.results.plank.recorded, 45);
+  assert.deepEqual(c.results.plank.values, [45]);
   assert.strictEqual(c.results.rows, undefined);
 
   // The dumbbell flag travels with the weight.
@@ -208,42 +209,42 @@ test('previous/next and copying values', () => {
 
 test('text notes are copied from the previous workout', () => {
   const p = programme(mwf);
-  p.items.push({ id: 'band', type: 'reps', name: 'Band pull-aparts', sets: 2, reps: 15, measure: 'text' });
+  p.items.push({ id: 'band', type: 'reps', name: 'Band pull-aparts', sets: 2, reps: 15, record: ['note'] });
   const d = withProgramme(p, '2026-11-02');
   const [a, b] = mine(d);
   finish(a);
-  a.results = { band: { setsDone: 2, recorded: 'red band' }, pull: { setsDone: 4, recorded: 10 } };
+  a.results = { band: { setsDone: 2, values: ['red band'] }, pull: { setsDone: 4, values: [10] } };
   assert.strictEqual(copyValues(b, a), 2);
-  assert.strictEqual(b.results.band.recorded, 'red band');
-  assert.strictEqual(describe(p.items.at(-1) as Exercise), '2 × 15 · notes');
+  assert.deepEqual(b.results.band.values, ['red band']);
+  assert.strictEqual(describe(p.items.at(-1) as Exercise), '2 × 15 · note');
 });
 
 test('several weights and varying reps', () => {
   const p = programme(mwf);
-  p.items.push({ id: 'dl', type: 'reps', name: 'Deadlift', sets: 3, reps: 5, repScheme: [5, 5, 10], measure: 'weights' });
+  p.items.push({ id: 'dl', type: 'reps', name: 'Deadlift', sets: 3, reps: 5, repScheme: [5, 5, 10], record: ['weight', 'weight', 'weight'] });
   const d = withProgramme(p, '2026-11-02');
   const [a, b] = mine(d);
   finish(a);
-  a.results = { dl: { setsDone: 3, recorded: [80, 80, 65] } };
+  a.results = { dl: { setsDone: 3, values: [80, 80, 65] } };
   const ex = p.items.at(-1) as Exercise;
   assert.strictEqual(describe(ex), '5 / 5 / 10 reps · 3 weights');
-  assert.deepEqual(valuesOf(b, ex), [null, null, null]);
+  assert.deepEqual(valuesFor(ex, b.results[ex.id]), [null, null, null]);
   assert.strictEqual(copyValues(b, a), 1);
-  assert.deepEqual(valuesOf(b, ex), [80, 80, 65]);
-  assert.strictEqual(fmtValues([115, null]), '115 / –');
+  assert.deepEqual(valuesFor(ex, b.results[ex.id]), [80, 80, 65]);
+  assert.strictEqual(fmtRecorded(ex, { setsDone: 3, values: [115, null, null] }), '115 / – / – kg');
 });
 
 test('exercise search', () => {
   const d = withProgramme(programme(mwf), '2026-11-02');
   const [a, b, c] = mine(d);
-  finish(a); a.results = { pull: { setsDone: 4, recorded: 10 } };
-  finish(b); b.results = { pull: { setsDone: 4, recorded: 12.5, feel: 'hard' } };
-  d.workouts.push({ id: 'o', name: 'Gym', emoji: 'x', date: '2026-11-05', results: { q: { setsDone: 3 } }, items: [{ id: 'q', type: 'reps', name: 'Pull-Ups ', sets: 3, reps: 5, measure: 'none' }] });
+  finish(a); a.results = { pull: { setsDone: 4, values: [10] } };
+  finish(b); b.results = { pull: { setsDone: 4, values: [12.5], feel: 'hard' } };
+  d.workouts.push({ id: 'o', name: 'Gym', emoji: 'x', date: '2026-11-05', results: { q: { setsDone: 3 } }, items: [{ id: 'q', type: 'reps', name: 'Pull-Ups ', sets: 3, reps: 5, record: [] }] });
   void c; // planned, so never found
   for (const w of mine(d)) w.name = 'Strength'; // so "pull" only matches the exercise
   const g = searchExercises(d, '  PULL ');
   assert.strictEqual(g.length, 1, 'names match regardless of case and spacing');
-  assert.deepEqual(g[0].entries.map((e) => [e.workout.date, e.result?.recorded]), [['2026-11-05', undefined], ['2026-11-04', 12.5], ['2026-11-02', 10]]);
+  assert.deepEqual(g[0].entries.map((e) => [e.workout.date, e.result?.values?.[0]]), [['2026-11-05', undefined], ['2026-11-04', 12.5], ['2026-11-02', 10]]);
   assert.deepEqual(searchExercises(d, 'dead hng'), []);
   assert.deepEqual(searchExercises(d, 'dead hang').map((x) => x.entries.length), [2]);
   assert.deepEqual(searchExercises(d, 'up pull').map((x) => x.name), ['Pull-Ups'], 'every word, in any order');
@@ -251,9 +252,9 @@ test('exercise search', () => {
   assert.deepEqual(searchExercises(d, 'gym').map((x) => [x.name, x.entries.length]), [['Pull-Ups', 1]], 'the workout name matches too');
   assert.deepEqual(searchExercises(d, 'gym pull').map((x) => x.entries.length), [1], 'words across exercise and workout');
   assert.strictEqual(searchExercises(d, 'strength').length, 5, 'every exercise of the matching workouts');
-  assert.deepEqual(searchExercises(d, 'pull', 'value')[0].entries.map((e) => e.result?.recorded), [12.5, 10, undefined], 'highest first, unrecorded last');
+  assert.deepEqual(searchExercises(d, 'pull', 'value')[0].entries.map((e) => e.result?.values?.[0]), [12.5, 10, undefined], 'highest first, unrecorded last');
   // Made-up name: one accented letter (é) and the non-decomposing letters ł and ø.
-  d.workouts[0].items.push({ id: 'm', type: 'reps', name: 'Café łift øver', sets: 3, reps: 8, measure: 'weight' });
+  d.workouts[0].items.push({ id: 'm', type: 'reps', name: 'Café łift øver', sets: 3, reps: 8, record: ['weight'] });
   assert.strictEqual(searchExercises(d, 'cafe lift over').length, 1, 'accents, ł and ø are ignored');
   assert.ok(exerciseNames(d).includes('Warm-up'));
 });
@@ -263,9 +264,9 @@ test('merging a backup adds what is missing and keeps what is here', () => {
   const there = withProgramme(programme(mwf), '2026-11-02'); // same programme, set up on another device
   const [h0, h1] = mine(here);
   const [t0, t1, t2] = mine(there);
-  finish(h0); h0.results = { pull: { setsDone: 4, recorded: 10 } };
-  finish(t0); t0.results = { pull: { setsDone: 4, recorded: 99 } };
-  finish(t1); t1.results = { pull: { setsDone: 4, recorded: 12.5 } };
+  finish(h0); h0.results = { pull: { setsDone: 4, values: [10] } };
+  finish(t0); t0.results = { pull: { setsDone: 4, values: [99] } };
+  finish(t1); t1.results = { pull: { setsDone: 4, values: [12.5] } };
   void t2;
   const past = { id: 'old', name: 'Gym 2024', emoji: 'x', date: '2024-03-01', results: {}, items: [] };
   const otherProgramme = { ...programme(mwf), id: 'p2', name: 'Legs' };
@@ -277,8 +278,8 @@ test('merging a backup adds what is missing and keeps what is here', () => {
   assert.deepEqual(s, { programmesAdded: 1, workoutsAdded: 1, workoutsUpdated: 1, skipped: 13 });
   assert.strictEqual(here.workouts.length, 15);
   assert.strictEqual(mine(here).length, 14, 'no duplicate slots');
-  assert.strictEqual(here.workouts.find((w) => w.scheduledDate === '2026-11-02')!.results.pull.recorded, 10, 'both done: ours kept');
-  assert.strictEqual(mine(here)[1].results.pull.recorded, 12.5, 'only theirs done: theirs taken');
+  assert.strictEqual(here.workouts.find((w) => w.scheduledDate === '2026-11-02')!.results.pull.values?.[0], 10, 'both done: ours kept');
+  assert.strictEqual(mine(here)[1].results.pull.values?.[0], 12.5, 'only theirs done: theirs taken');
   assert.notStrictEqual(mine(here)[1].id, h1.id);
   assert.deepEqual(here.settings.weightSteps, [1.25, 2.5, 5]);
 
@@ -287,17 +288,21 @@ test('merging a backup adds what is missing and keeps what is here', () => {
 });
 
 test('recorded values in a few words', () => {
-  const reps = (measure: string) => ({ id: 'x', type: 'reps', name: 'X', sets: 3, reps: 5, measure }) as Exercise;
-  const act = (measure: string) => ({ id: 'x', type: 'activity', name: 'X', measure }) as Exercise;
-  assert.strictEqual(fmtRecorded(reps('weight'), { setsDone: 3, recorded: 42.5 }), '42.5 kg');
-  assert.strictEqual(fmtRecorded({ ...reps('weights'), weightCount: 2 } as Exercise, { setsDone: 3, recorded: [10, 12.5] }), '10 / 12.5 kg');
-  assert.strictEqual(fmtRecorded(reps('time'), { setsDone: 3, recorded: 70 }), '1min 10s');
-  assert.strictEqual(fmtRecorded(reps('text'), { setsDone: 3, recorded: 'blue' }), 'blue');
-  assert.strictEqual(fmtRecorded(act('distance'), { setsDone: 1, recorded: 5.4 }), '5.4 km');
-  assert.strictEqual(fmtRecorded(act('time'), { setsDone: 1, recorded: 75 }), '1h 15min');
-  assert.strictEqual(fmtRecorded(act('count'), { setsDone: 1, recorded: 30 }), '30 times');
-  assert.strictEqual(fmtRecorded(reps('none'), { setsDone: 3 }), '');
+  const reps = (...record: string[]) => ({ id: 'x', type: 'reps', name: 'X', sets: 3, reps: 5, record }) as Exercise;
+  const act = (...record: string[]) => ({ id: 'x', type: 'activity', name: 'X', record }) as Exercise;
+  assert.strictEqual(fmtRecorded(reps('weight'), { setsDone: 3, values: [42.5] }), '42.5 kg');
+  assert.strictEqual(fmtRecorded(reps('weight', 'weight'), { setsDone: 3, values: [10, 12.5] }), '10 / 12.5 kg');
+  assert.strictEqual(fmtRecorded(reps('time'), { setsDone: 3, values: [70] }), '1min 10s');
+  assert.strictEqual(fmtRecorded(reps('note'), { setsDone: 3, values: ['blue'] }), 'blue');
+  assert.strictEqual(fmtRecorded(act('distance'), { setsDone: 1, values: [5.4] }), '5.4 km');
+  assert.strictEqual(fmtRecorded(act('time'), { setsDone: 1, values: [4500] }), '1h 15min');
+  assert.strictEqual(fmtRecorded(act('count'), { setsDone: 1, values: [30] }), '30×');
+  assert.strictEqual(fmtRecorded(act('route', 'boulder'), { setsDone: 1, values: ['7a+', 'V4'] }), '7a+ · V4');
+  assert.strictEqual(fmtRecorded(act('time', 'distance'), { setsDone: 1, values: [1800, 6] }), '30min · 6 km · 5:00 /km', 'a time and a distance give a pace');
+  assert.strictEqual(fmtRecorded(reps('weight', 'route'), { setsDone: 1, values: [10, null] }), '10 kg', 'unset values are left out');
+  assert.strictEqual(fmtRecorded(reps(), { setsDone: 3 }), '');
   assert.strictEqual(fmtRecorded(reps('weight'), undefined), '');
+  assert.strictEqual(fmtRecorded(reps('weight', 'time'), { setsDone: 1, values: [20, 45] }, false), '20 · 45s', 'without units, for tables');
 });
 
 test('workout status is worked out from results', () => {
@@ -309,8 +314,8 @@ test('workout status is worked out from results', () => {
   assert.deepEqual([a, b, c, e].map((w) => statusOf(w, '2026-11-10')), ['done', 'partial', 'done', 'missed'], 'failed counts as finished; some progress is partial');
   assert.strictEqual(statusOf(e, '2026-11-09'), 'today');
   assert.strictEqual(statusOf(mine(d)[5], '2026-11-09'), 'planned');
-  const act = { id: 'r', type: 'activity', name: 'Run', measure: 'distance' } as Exercise;
-  const run = { id: 'x', name: 'Run', emoji: 'x', date: '2026-11-02', items: [act], results: { r: { setsDone: 0, recorded: 5 } } } as Workout;
+  const act = { id: 'r', type: 'activity', name: 'Run', record: ['distance'] } as Exercise;
+  const run = { id: 'x', name: 'Run', emoji: 'x', date: '2026-11-02', items: [act], results: { r: { setsDone: 0, values: [5] } } } as Workout;
   assert.ok(isComplete(run), 'an activity with an amount is done');
   assert.ok(!isComplete({ ...run, items: [] }), 'an empty workout is never done');
 });
@@ -326,16 +331,27 @@ test('stored done status is kept as derived', () => {
   assert.deepEqual(d.workouts.map((w) => statusOf(w, '2026-11-10')), ['done', 'missed']);
 });
 
-test('recorded values from older data move into one field', () => {
-  const old = { version: 1, programmes: [], workouts: [{ id: 'w', date: '2026-11-02', name: 'x', emoji: 'x', items: [
+test('recorded values from older data become a list per exercise', () => {
+  const old = { version: 1, programmes: [{ id: 'p', name: 'P', emoji: 'x', archived: false, schedule: { start: '2026-11-02', repeat: { kind: 'interval', days: 1 }, end: { kind: 'never' } }, items: [
+    { id: 't', type: 'timed', name: 'T', reps: 3, workSec: 5, restSec: 5, trackWeight: true },
+    { id: 'e', type: 'activity', name: 'E', measure: 'distance' },
+  ] }], workouts: [{ id: 'w', date: '2026-11-02', name: 'x', emoji: 'x', items: [
     { id: 'a', type: 'reps', name: 'A', sets: 1, reps: 5, measure: 'weight' },
     { id: 'b', type: 'reps', name: 'B', sets: 1, reps: 5, measure: 'weights', weightCount: 2 },
     { id: 'c', type: 'reps', name: 'C', sets: 1, reps: 5, measure: 'text' },
     { id: 'd', type: 'reps', name: 'D', sets: 1, reps: 5, measure: 'none' },
-  ], results: { a: { setsDone: 1, value: 40 }, b: { setsDone: 1, values: [10, null] }, c: { setsDone: 1, text: 'red' }, d: { setsDone: 1, text: '' } } }] };
-  const r = migrate(old).workouts[0].results;
-  assert.deepEqual([r.a.recorded, r.b.recorded, r.c.recorded, r.d.recorded], [40, [10, null], 'red', undefined]);
-  assert.ok(Object.values(r).every((x) => !('value' in x) && !('values' in x) && !('text' in x)));
+    { id: 'h', type: 'reps', name: 'H', sets: 1, reps: 1, measure: 'time' },
+    { id: 'm', type: 'activity', name: 'M', measure: 'time' },
+  ], results: { a: { setsDone: 1, value: 40 }, b: { setsDone: 1, values: [10, null] }, c: { setsDone: 1, text: 'red' }, d: { setsDone: 1, text: '' }, h: { setsDone: 1, recorded: 45 }, m: { setsDone: 1, recorded: 30 } } }] };
+  const d = migrate(old);
+  const w = d.workouts[0];
+  assert.deepEqual(flatten(w.items).map((f) => f.ex.record), [['weight'], ['weight', 'weight'], ['note'], [], ['time'], ['time']]);
+  assert.deepEqual(flatten(d.programmes[0].items).map((f) => f.ex.record), [['weight'], ['distance']]);
+  const r = w.results;
+  assert.deepEqual([r.a.values, r.b.values, r.c.values, r.d.values, r.h.values, r.m.values], [[40], [10, null], ['red'], undefined, [45], [1800]]);
+  assert.ok(Object.values(r).every((x) => !('value' in x) && !('recorded' in x) && !('text' in x)));
+  assert.ok(flatten(w.items).every((f) => !('measure' in f.ex)));
+  assert.deepEqual(migrate(JSON.parse(JSON.stringify(d))), d, 'already converted data stays as it is');
 });
 
 test('old rest settings become rest items', () => {
@@ -385,4 +401,16 @@ test('a programme backup holds its workouts so far and imports into empty data',
   syncProgramme(fresh, fresh.programmes[0], '2026-11-09');
   assert.strictEqual(fresh.workouts.length, 14, 'future workouts are planned again');
   assert.strictEqual(fresh.workouts.filter((w) => isComplete(w)).length, 1, 'the done one came across');
+});
+
+test('values pair up by kind across workouts, and grades sort by difficulty', () => {
+  const ex = (id: string, ...record: string[]) => ({ id, type: 'reps', name: 'Climb', sets: 1, reps: 1, record }) as Exercise;
+  const before = { id: 'a', name: 'x', emoji: 'x', date: '2026-11-02', items: [ex('c1', 'weight', 'route', 'weight')], results: { c1: { setsDone: 1, values: [5, '6b+', 7.5] } } } as Workout;
+  const now = { id: 'b', name: 'x', emoji: 'x', date: '2026-11-03', items: [ex('c2', 'route', 'weight', 'weight', 'boulder')], results: {} } as Workout;
+  assert.deepEqual([0, 1, 2, 3].map((i) => matchingValueAt(before, now.items[0] as Exercise, i)), ['6b+', 5, 7.5, null], 'the second weight reads the second weight');
+  assert.strictEqual(copyValues(now, before), 1);
+  assert.deepEqual(now.results.c2.values, ['6b+', 5, 7.5, null]);
+  const climbs = ex('g', 'route');
+  const rank = (g: string) => entryValue({ workout: now, ex: climbs, sets: 1, result: { setsDone: 1, values: [g] } });
+  assert.ok(rank('7a+')! > rank('7a')! && rank('7a')! > rank('6c+')!, 'harder grades rank higher');
 });

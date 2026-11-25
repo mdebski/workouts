@@ -12,25 +12,28 @@
 
 import { uid } from './core.ts';
 import { parseDuration } from './duration.ts';
-import type { Exercise, RepsExercise, Rest } from './types.ts';
+import type { Exercise, RecordKind, RepsExercise, Rest } from './types.ts';
 
-export type QuickDefaults = Pick<RepsExercise, 'sets' | 'reps' | 'repScheme' | 'measure' | 'restBetweenSets' | 'weightCount'>;
+export type QuickDefaults = Pick<RepsExercise, 'sets' | 'reps' | 'repScheme' | 'record' | 'restBetweenSets'>;
+
+/** What sets of reps record by default: the previous exercise's list, but a hold time doesn't carry over to reps. */
+const repsRecord = (d: QuickDefaults): RecordKind[] => (d.record.includes('time') ? ['weight'] : [...d.record]);
 
 const X = '\\s*[x×*]\\s*';
 const NAME = '^(.+?)[\\s,:–-]+';
 const RULES: [RegExp, (m: RegExpMatchArray, d: QuickDefaults) => Omit<Exercise, 'id' | 'name'>][] = [
   [new RegExp(`${NAME}(?:(\\d+)${X})?(\\d+)${X}(\\d+)\\s*s?\\s*/\\s*(\\d+)\\s*s?$`, 'i'),
-    (m) => ({ type: 'timed', reps: Number(m[2] ?? 1) * Number(m[3]), workSec: Number(m[4]), restSec: Number(m[5]), trackWeight: false })],
+    (m) => ({ type: 'timed', reps: Number(m[2] ?? 1) * Number(m[3]), workSec: Number(m[4]), restSec: Number(m[5]), record: [] })],
   [new RegExp(`${NAME}(\\d+(?:\\s*[;/]\\s*\\d+)+)$`, 'i'), (m, d) => {
     const scheme = m[2].split(/\s*[;/]\s*/).map(Number);
-    return { type: 'reps', sets: scheme.length, reps: scheme[0], repScheme: scheme, measure: d.measure === 'time' ? 'weight' : d.measure, weightCount: d.weightCount, restBetweenSets: d.restBetweenSets };
+    return { type: 'reps', sets: scheme.length, reps: scheme[0], repScheme: scheme, record: repsRecord(d), restBetweenSets: d.restBetweenSets };
   }],
-  [new RegExp(`${NAME}(\\d+)${X}hold$`, 'i'), (m) => ({ type: 'reps', sets: Number(m[2]), reps: 1, measure: 'time' })],
-  [new RegExp(`${NAME}(\\d+)${X}(\\d+)$`, 'i'), (m, d) => ({ type: 'reps', sets: Number(m[2]), reps: Number(m[3]), measure: d.measure === 'time' ? 'weight' : d.measure, restBetweenSets: d.restBetweenSets })],
+  [new RegExp(`${NAME}(\\d+)${X}hold$`, 'i'), (m) => ({ type: 'reps', sets: Number(m[2]), reps: 1, record: ['time'] })],
+  [new RegExp(`${NAME}(\\d+)${X}(\\d+)$`, 'i'), (m, d) => ({ type: 'reps', sets: Number(m[2]), reps: Number(m[3]), record: repsRecord(d), restBetweenSets: d.restBetweenSets })],
   // Activities have no preset amount; a number written before "min" or on its own is accepted and ignored.
-  [new RegExp(`${NAME}(?:\\d+(?:[.,]\\d+)?\\s*)?min(?:ute)?s?$`, 'i'), () => ({ type: 'activity', measure: 'time' })],
-  [new RegExp(`${NAME}(?:\\d+(?:[.,]\\d+)?\\s*)?km$`, 'i'), () => ({ type: 'activity', measure: 'distance' })],
-  [new RegExp(`${NAME}(?:count|[x×]?\\s*\\d+\\s*[x×]?)$`, 'i'), () => ({ type: 'activity', measure: 'count' })],
+  [new RegExp(`${NAME}(?:\\d+(?:[.,]\\d+)?\\s*)?min(?:ute)?s?$`, 'i'), () => ({ type: 'activity', record: ['time'] })],
+  [new RegExp(`${NAME}(?:\\d+(?:[.,]\\d+)?\\s*)?km$`, 'i'), () => ({ type: 'activity', record: ['distance'] })],
+  [new RegExp(`${NAME}(?:count|[x×]?\\s*\\d+\\s*[x×]?)$`, 'i'), () => ({ type: 'activity', record: ['count'] })],
 ];
 
 const clamp = (n: number, max: number) => Math.min(max, Math.max(1, Math.round(n)));
@@ -55,7 +58,7 @@ export function parseQuickLine(line: string, defaults: QuickDefaults): Exercise 
     if (ex.type === 'timed') Object.assign(ex, { reps: clamp(ex.reps, 99), workSec: clamp(ex.workSec, 3600), restSec: Math.min(3600, ex.restSec) });
     return ex;
   }
-  return { id: uid(), name: text.slice(0, 80), type: 'reps', ...defaults };
+  return { id: uid(), name: text.slice(0, 80), type: 'reps', ...defaults, ...(defaults.repScheme ? { repScheme: [...defaults.repScheme] } : {}), record: [...defaults.record] };
 }
 
 export function parseQuick(text: string, defaults: QuickDefaults): (Exercise | Rest)[] {

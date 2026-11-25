@@ -6,14 +6,14 @@ const programme: Programme = {
   id: 'p1', name: 'Pull day', emoji: '💪', archived: true,
   schedule: { start: '2026-11-02', repeat: { kind: 'weekdays', days: [1, 3, 5] }, end: { kind: 'count', n: 14 } },
   items: [
-    { id: 'a', type: 'reps', name: 'Pull-ups', sets: 4, reps: 6, measure: 'weight', restBetweenSets: 90 },
+    { id: 'a', type: 'reps', name: 'Pull-ups', sets: 4, reps: 6, record: ['weight'], restBetweenSets: 90 },
     { id: 's', type: 'superset', rounds: 3, items: [
-      { id: 'b', type: 'reps', name: 'Plank', sets: 1, reps: 1, measure: 'time' },
-      { id: 'c', type: 'timed', name: 'Dead hang', reps: 6, workSec: 5, restSec: 5, trackWeight: false },
+      { id: 'b', type: 'reps', name: 'Plank', sets: 1, reps: 1, record: ['time'] },
+      { id: 'c', type: 'timed', name: 'Dead hang', reps: 6, workSec: 5, restSec: 5, record: ['weight'] },
       { id: 'r1', type: 'rest', seconds: 60 },
     ] },
     { id: 'r2', type: 'rest', seconds: 120 },
-    { id: 'd', type: 'activity', name: 'Warm-up', measure: 'time' },
+    { id: 'd', type: 'activity', name: 'Warm-up', record: ['time', 'route'] },
   ],
 };
 
@@ -54,7 +54,7 @@ test('untrusted input is rebuilt and clamped', () => {
   assert.strictEqual('extra' in p, false);
   assert.deepEqual(p.schedule, { start: '2026-11-16', repeat: { kind: 'weekdays', days: [1, 5] }, end: { kind: 'never' } });
   const ex = p.items[0];
-  assert.deepEqual({ ...ex, id: '' }, { id: '', name: 'Squat', description: undefined, type: 'reps', sets: 99, reps: 1, repScheme: undefined, measure: 'none', weightCount: undefined, restBetweenSets: undefined });
+  assert.deepEqual({ ...ex, id: '' }, { id: '', name: 'Squat', description: undefined, record: [], type: 'reps', sets: 99, reps: 1, repScheme: undefined, restBetweenSets: undefined });
 });
 
 test('rests from older links become rest items', () => {
