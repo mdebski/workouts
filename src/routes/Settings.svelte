@@ -7,6 +7,7 @@
   import { fmtNum, mergeData, migrate, type MergeSummary } from '../lib/core.ts';
   import type { Data } from '../lib/types.ts';
   import { today } from '../lib/dates.ts';
+  import { beep, beepVolume, setBeepVolume } from '../lib/timer.svelte.ts';
 
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -152,6 +153,12 @@
     newIcon = '';
   }
 
+  let volume = $state(Math.round(beepVolume() * 100));
+  function saveVolume() {
+    setBeepVolume(volume / 100);
+    beep(880, 200, volume / 100);
+  }
+
   function saveSteps() {
     const parsed = steps.split(/[,;\s]+/).map((s) => Number(s.replace(',', '.'))).filter((n) => Number.isFinite(n) && n > 0);
     if (parsed.length) db.settings.weightSteps = parsed.slice(0, 4);
@@ -202,6 +209,18 @@
     <label class="grow"><span class="sr">Emoji to add</span><input type="text" bind:value={newIcon} placeholder="Type or pick an emoji" autocomplete="off" /></label>
     <button class="btn" type="submit">Add</button>
   </form>
+</div>
+
+<h2>Timer sounds</h2>
+<div class="card">
+  <label class="field">
+    <span>Beep volume <span class="muted">· {volume ? `${volume}%` : 'off'}</span></span>
+    <input type="range" min="0" max="100" step="10" bind:value={volume} onchange={saveVolume} />
+  </label>
+  <div class="row">
+    <button class="btn grow" type="button" onclick={() => beep(880, 350, volume / 100)} disabled={!volume}>Play a beep</button>
+  </div>
+  <p class="muted">Applies on this device only. The phone's own volume still sets the limit.</p>
 </div>
 
 <h2>Weights</h2>

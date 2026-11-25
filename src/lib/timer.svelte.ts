@@ -8,17 +8,51 @@ export interface Phase {
 
 let audio: AudioContext | undefined;
 
-function beep(freq: number, ms: number): void {
+const VOLUME_KEY = 'workouts:beep-volume';
+
+/** How loud the timer beeps on this device, 0 (off) to 1. Loudest unless changed. */
+export function beepVolume(): number {
+  try {
+    const v = localStorage.getItem(VOLUME_KEY);
+    const n = v === null ? 1 : Number(v);
+    return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
+  } catch {
+    return 1;
+  }
+}
+
+export function setBeepVolume(v: number): void {
+  try {
+    localStorage.setItem(VOLUME_KEY, String(Math.min(1, Math.max(0, v))));
+  } catch {
+    // Not saved: it stays at what it was.
+  }
+}
+
+/**
+ * A short tone. A square wave sounds far louder than a pure tone at the same level: its
+ * overtones land where ears (and phone speakers) are most sensitive. It holds at full level
+ * and only fades at the very end, rather than decaying from the start.
+ */
+export function beep(freq: number, ms: number, volume = beepVolume()): void {
+  if (volume <= 0) return;
   try {
     audio ??= new AudioContext();
+    if (audio.state === 'suspended') void audio.resume();
+    const t = audio.currentTime;
+    const end = t + ms / 1000;
+    const level = 0.6 * volume * volume; // Squared, so the slider feels even to the ear.
     const osc = audio.createOscillator();
     const gain = audio.createGain();
+    osc.type = 'square';
     osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0.25, audio.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + ms / 1000);
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(level, t + 0.005);
+    gain.gain.setValueAtTime(level, Math.max(t + 0.005, end - 0.03));
+    gain.gain.linearRampToValueAtTime(0, end);
     osc.connect(gain).connect(audio.destination);
-    osc.start();
-    osc.stop(audio.currentTime + ms / 1000);
+    osc.start(t);
+    osc.stop(end);
   } catch {
     // No audio available: the on-screen countdown still works.
   }
