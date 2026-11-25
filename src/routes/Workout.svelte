@@ -3,6 +3,7 @@
   import Icon from '../components/Icon.svelte';
   import { formatDuration } from '../lib/duration.ts';
   import RecordSheet from '../components/RecordSheet.svelte';
+  import FeelMark from '../components/FeelMark.svelte';
   import { db, getProgramme, getWorkout, removeWorkout } from '../lib/state.svelte.ts';
   import { clone, hasRecorded as resultHasRecorded, describePlan, exerciseFinished, recordsKg, copyValues, fmtNum, flatten, fmtSecs, isComplete, matchingValueAt, neighbours, previousDone, resultOf, setValueAt, statusOf, valueAt } from '../lib/core.ts';
   import { fmtOne, gradeRank, isGradeKind, isNumberKind, kindLabel, paceOf } from '../lib/record.ts';
@@ -393,7 +394,7 @@
   {#snippet vs(ex: Exercise)}
     {@const text = vsLast(w, ex)}
     {@const feel = FEELS.find((f) => f.id === w.results[ex.id]?.feel)}
-    <p class="vs" aria-hidden={!text && !feel}>{#if feel}<span class="feel-dot {feel.id}" title="Felt {feel.label.toLowerCase()}"><span class="sr">Felt {feel.label.toLowerCase()}. </span></span>{/if}{text || '\u00a0'}</p>
+    <p class="vs" aria-hidden={!text && !feel}>{#if feel}<span class="feel-gap"><FeelMark feel={feel.id} /></span>{/if}{text || '\u00a0'}</p>
   {/snippet}
 
   <!-- A rest item: its length and a timer (play, then pause / resume while it runs). -->
@@ -609,10 +610,7 @@
   /* A timer running for this exercise: tinted green, like a running rest is tinted red. */
   .ex.running { background: color-mix(in srgb, var(--ok-line) 18%, var(--card)); }
   /* How it felt, as a small dot after the name (set in the value sheet). */
-  .feel-dot { display: inline-block; width: 0.5rem; height: 0.5rem; margin-right: 0.375rem; border-radius: 50%; vertical-align: 0.1em; }
-  .feel-dot.easy { background: var(--ok); }
-  .feel-dot.hard { background: var(--warn); }
-  .feel-dot.failed { background: var(--bad); }
+  .feel-gap { margin-right: 0.375rem; }
   .chip { min-height: 2.25rem; padding: 0 0.875rem; border: none; border-radius: 99px; background: var(--raise); color: var(--text); font: inherit; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; }
   /* Under the weight, on the right: how it compares with last time. */
   .vs { margin: -0.25rem 0.25rem 0 0; text-align: right; font-size: 0.8125rem; line-height: 1.3; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -671,8 +669,8 @@
   .timer.prepare { background: var(--warn); color: var(--warn-ink); }
   /* Every button on the bar: the same height, a dark wash over the bar colour and the bar's
      dark text, so they read on green and red alike (the plain icon-button hover is too dark here). */
-  .timer .btn, .timer .icon-btn { min-height: 3.25rem; height: 3.25rem; background: rgb(0 0 0 / 0.22); color: inherit; }
-  .timer .btn:hover, .timer .icon-btn:hover { background: rgb(0 0 0 / 0.34); }
+  .timer .icon-btn { min-height: 3.25rem; height: 3.25rem; background: rgb(0 0 0 / 0.22); color: inherit; }
+  .timer .icon-btn:hover { background: rgb(0 0 0 / 0.34); }
   .timer .icon-btn { width: 3.25rem; }
   /* The time takes the free space, so the buttons sit together on the right. */
   .t-row { display: flex; align-items: center; gap: 0.5rem; }

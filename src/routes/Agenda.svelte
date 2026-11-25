@@ -14,7 +14,8 @@
   import { flatten, hasProgress, slotInfo, statusOf } from '../lib/core.ts';
   import { fmtRecorded } from '../lib/record.ts';
   import { addDays, diffDays, fmtMonth, fmtWeekday, isoWeek, today as todayISO } from '../lib/dates.ts';
-  import type { Workout } from '../lib/types.ts';
+  import type { Feel, Workout } from '../lib/types.ts';
+  import FeelMark from '../components/FeelMark.svelte';
 
   const today = todayISO();
   let pastDays = $state(keptPast);
@@ -44,6 +45,12 @@
   }
   const shown = $derived(compact ? days.filter((d) => d === today || byDate.has(d)) : days);
   const hasEarlier = $derived(db.workouts.some((w) => w.date < days[0]));
+
+  /** How a workout's only exercise felt, if it was marked. */
+  function soleFeel(w: Workout): Feel | undefined {
+    const flat = flatten(w.items);
+    return flat.length === 1 ? w.results[flat[0].ex.id]?.feel : undefined;
+  }
 
   function sub(w: Workout): string {
     const status = statusOf(w, today);
@@ -104,11 +111,12 @@
       <div class="list">
         {#each list as w (w.id)}
           {@const status = statusOf(w, today)}
+          {@const solo = soleFeel(w)}
           <a class="w {status}" class:started={status !== 'done' && hasProgress(w)} href="#/w/{w.id}">
             <span class="emoji" aria-hidden="true">{w.emoji}</span>
             <span class="text">
               <span class="name">{w.name}</span>
-              {#if sub(w)}<span class="muted">{sub(w)}</span>{/if}
+              {#if sub(w) || solo}<span class="muted">{#if solo}<span class="feel-gap"><FeelMark feel={solo} /></span>{/if}{sub(w)}</span>{/if}
             </span>
             {#if status === 'done'}<span class="mark"><Icon name="check" size={14} /><span class="sr">Done</span></span>{/if}
             {#if status === 'today'}<span class="mark"><Icon name="play" size={12} /></span>{/if}
@@ -157,6 +165,7 @@
   .name { font-weight: 600; font-size: 0.875rem; line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
   .text .muted { font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .w .emoji { width: 1.75rem; height: 1.75rem; font-size: 1rem; border-radius: 9px; }
+  .feel-gap { margin-right: 0.3125rem; }
   .mark { position: absolute; top: 0.25rem; right: 0.25rem; }
   .done, .today { padding-right: 1.125rem; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

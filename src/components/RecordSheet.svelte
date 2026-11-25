@@ -181,7 +181,7 @@
 
       <div class="feels" role="group" aria-label="How did it feel?">
         {#each FEELS as f}
-          <button type="button" class="btn small {f.id}" aria-pressed={draftFeel === f.id} onclick={() => (draftFeel = draftFeel === f.id ? undefined : f.id)}><span class="dot" aria-hidden="true"></span> {f.label}</button>
+          <button type="button" class="btn small {f.id}" aria-pressed={draftFeel === f.id} onclick={() => (draftFeel = draftFeel === f.id ? undefined : f.id)}>{#if f.id === 'failed'}<svg class="cross" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>{:else}<span class="dot" aria-hidden="true"></span>{/if} {f.label}</button>
         {/each}
       </div>
       {#if ex.record.includes('weight')}
@@ -229,6 +229,8 @@
   .feels .easy { --feel: var(--ok); }
   .feels .hard { --feel: var(--warn); }
   .feels .failed { --feel: var(--bad); }
+  .cross { width: 0.875rem; height: 0.875rem; flex: none; fill: none; stroke: var(--bad); stroke-width: 4; stroke-linecap: round; vertical-align: -0.1em; }
+  .feels .btn[aria-pressed='true'] .cross { stroke: currentColor; }
   .feels .btn[aria-pressed='true'] .dot { box-shadow: 0 0 0 2px currentColor; }
   .feels .btn[aria-pressed='true'].easy { background: var(--ok); color: var(--ok-ink); }
   .feels .btn[aria-pressed='true'].hard { background: var(--warn); color: var(--warn-ink); }

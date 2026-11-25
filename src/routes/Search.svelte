@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import Icon from '../components/Icon.svelte';
+  import FeelMark from '../components/FeelMark.svelte';
   import { db } from '../lib/state.svelte.ts';
   import { exerciseNames, workoutNames, searchExercises, type SearchEntry, type SearchSort } from '../lib/core.ts';
   import { fmtRecorded } from '../lib/record.ts';
@@ -101,7 +102,7 @@
               </span>
               <span class="what">
                 {recorded(e)}
-                {#if e.result?.feel}<span class="feel">{FEEL[e.result.feel]}</span>{/if}
+                {#if e.result?.feel}<span class="feel">{#if e.result.feel === 'failed'}<FeelMark feel="failed" label={false} /> {/if}{FEEL[e.result.feel]}</span>{/if}
               </span>
             </a>
           </li>

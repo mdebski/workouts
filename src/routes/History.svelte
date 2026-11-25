@@ -147,6 +147,9 @@
   td.easy, td.hard, td.failed { position: relative; }
   td.easy::after, td.hard::after, td.failed::after, .key::before { content: ''; width: 0.4375rem; height: 0.4375rem; border-radius: 50%; background: var(--feel); }
   td.easy::after, td.hard::after, td.failed::after { position: absolute; top: 0.3125rem; right: 0.3125rem; }
+  /* Not finished stands out: a red cross instead of a dot. */
+  td.failed::after, .key.failed::before { content: '✕'; width: auto; height: auto; border-radius: 0; background: none; color: var(--bad); font-size: 0.75rem; font-weight: 800; line-height: 1; }
+  td.failed::after { top: 0.25rem; }
   .easy { --feel: var(--ok); }
   .hard { --feel: var(--warn); }
   .failed { --feel: var(--bad); }
