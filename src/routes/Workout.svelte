@@ -420,7 +420,7 @@
     {@const same = ex.record.filter((r) => r === k).length > 1}
     {@const what = same ? `${kindLabel(k).toLowerCase()} ${ex.record.slice(0, i + 1).filter((r) => r === k).length}` : kindLabel(k).toLowerCase()}
     {@const shown = v === null ? '' : fmtOne(k, v)}
-    <button class="chip" class:unset={v === null} aria-label="{ex.name}, {what}: {shown || 'not set'}. Change" onclick={() => openValue(ex)}>
+    <button class="chip" class:unset={v === null} class:note={k === 'note'} aria-label="{ex.name}, {what}: {shown || 'not set'}. Change" onclick={() => openValue(ex)}>
       {shown || (k === 'weight' ? '— kg' : k === 'distance' ? '— km' : isGradeKind(k) ? (same ? `Grade ${ex.record.slice(0, i + 1).filter((r) => r === k).length}` : 'Grade') : kindLabel(k))}{#if k === 'weight'}{@render dumbbellMark(ex)}{/if}
     </button>
   {/snippet}
@@ -486,21 +486,11 @@
         </div>
         {@render vs(ex)}
       {:else if !singleWeight && ex.record.length}
-        {@const chips = ex.record.map((k, i) => i).filter((i) => ex.record[i] !== 'note')}
-        {#if chips.length}
-          <div class="row values" role="group" aria-label="{ex.name}: recorded">
-            {#each chips as i (i)}{@render valueChip(ex, i)}{/each}
-            {#if pace}<span class="pace">{pace}</span>{/if}
-          </div>
-        {/if}
-        {#each ex.record as k, i (i)}
-          {#if k === 'note'}
-            {@const lastText = matchingValueAt(last, ex, i)}
-            {@const v = valueAt(w, ex, i)}
-            <textarea class="record" rows="1" aria-label="{ex.name}: note for this workout" placeholder={typeof lastText === 'string' ? `Last time: ${lastText}` : 'Note: band, grip, variation…'}
-              value={typeof v === 'string' ? v : ''} oninput={(e) => record(w, ex, i, e.currentTarget.value || null)}></textarea>
-          {/if}
-        {/each}
+        <!-- Every value, notes too, as a chip; they're all typed in the record sheet. -->
+        <div class="row values" role="group" aria-label="{ex.name}: recorded">
+          {#each ex.record as _, i (i)}{@render valueChip(ex, i)}{/each}
+          {#if pace}<span class="pace">{pace}</span>{/if}
+        </div>
         {@render vs(ex)}
       {/if}
     </article>
@@ -632,7 +622,8 @@
   /* Everything recorded besides a single weight: a row of chips, with the pace after a time and a distance. */
   .values { flex-wrap: wrap; gap: 0.375rem; align-items: center; margin-top: 0.125rem; }
   .pace { font-size: 0.875rem; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .record { field-sizing: content; min-height: 2.75rem; resize: none; }
+  /* A note's chip shows its start; the whole note is in the record sheet. */
+  .values .chip.note { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
   .amount { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem; }
   /* Icons rather than − / + characters: font glyphs sit off-centre in a round button. */
   .amount .step { flex: none; display: grid; place-items: center; width: 3.25rem; height: 3.25rem; padding: 0; border: none; border-radius: 50%; background: var(--raise); color: var(--text); cursor: pointer; touch-action: manipulation; }
