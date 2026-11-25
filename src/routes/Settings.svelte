@@ -7,7 +7,8 @@
   import { fmtNum, mergeData, migrate, type MergeSummary } from '../lib/core.ts';
   import type { Data } from '../lib/types.ts';
   import { today } from '../lib/dates.ts';
-  import { beep, beepVolume, setBeepVolume } from '../lib/timer.svelte.ts';
+  import { beepVolume, setBeepVolume } from '../lib/timer.svelte.ts';
+  import { playSound, type Sound } from '../lib/sounds.ts';
 
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -153,10 +154,11 @@
     newIcon = '';
   }
 
+  const SAMPLES: [Sound, string][] = [['tick', 'Countdown'], ['start', 'Start'], ['stop', 'Rest'], ['finish', 'Finished']];
   let volume = $state(Math.round(beepVolume() * 100));
   function saveVolume() {
     setBeepVolume(volume / 100);
-    beep(880, 200, volume / 100);
+    playSound('start', volume / 100);
   }
 
   function saveSteps() {
@@ -217,8 +219,10 @@
     <span>Beep volume <span class="muted">· {volume ? `${volume}%` : 'off'}</span></span>
     <input type="range" min="0" max="100" step="10" bind:value={volume} onchange={saveVolume} />
   </label>
-  <div class="row">
-    <button class="btn grow" type="button" onclick={() => beep(880, 350, volume / 100)} disabled={!volume}>Play a beep</button>
+  <div class="sounds">
+    {#each SAMPLES as [s, label]}
+      <button class="btn small" type="button" onclick={() => playSound(s, volume / 100)} disabled={!volume}>{label}</button>
+    {/each}
   </div>
   <p class="muted">Applies on this device only. The phone's own volume still sets the limit.</p>
 </div>
@@ -254,6 +258,8 @@
   /* The main way to back up gets a row of its own; Export and Import share the next one. */
   .share { flex: 1 0 100%; }
   .update { margin-top: 0.75rem; }
+  .sounds { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.375rem; }
+  .sounds .btn { padding-inline: 0.25rem; }
   .icons { list-style: none; margin: 0.75rem 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.375rem; }
   .icons li { display: flex; align-items: center; gap: 0.125rem; padding: 0 0.125rem 0 0.5rem; border-radius: 99px; background: var(--raise); }
   .icons .icon { font-size: 1.25rem; }

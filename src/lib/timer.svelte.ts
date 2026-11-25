@@ -1,3 +1,5 @@
+import { playSound, soundLead, unlockAudio, type Sound } from './sounds.ts';
+
 export interface Phase {
   label: string;
   /** prepare: a short count-in before work (e.g. getting into a hold). */
@@ -6,7 +8,6 @@ export interface Phase {
   onEnd?: () => void;
 }
 
-let audio: AudioContext | undefined;
 
 const VOLUME_KEY = 'workouts:beep-volume';
 
@@ -29,51 +30,21 @@ export function setBeepVolume(v: number): void {
   }
 }
 
-let tone: PeriodicWave | undefined;
-
 /**
- * A short tone: mostly a pure (sine) tone, with a little of the next two overtones so it
- * carries on a phone speaker without sounding harsh. It holds at full level and only fades
- * at the very end, rather than decaying from the start.
+ * Sounds play this much before what they mark: speakers (Bluetooth especially) lag, so
+ * the sound arrives about when the phase actually ends.
  */
-export function beep(freq: number, ms: number, volume = beepVolume(), inMs = 0): OscillatorNode | undefined {
-  if (volume <= 0) return;
-  try {
-    audio ??= new AudioContext();
-    if (audio.state === 'suspended') void audio.resume();
-    const t = audio.currentTime + Math.max(0, inMs) / 1000;
-    const end = t + ms / 1000;
-    const level = 0.9 * volume * volume; // Squared, so the slider feels even to the ear.
-    const osc = audio.createOscillator();
-    const gain = audio.createGain();
-    tone ??= audio.createPeriodicWave(new Float32Array([0, 0, 0, 0]), new Float32Array([0, 1, 0.2, 0.08]));
-    osc.setPeriodicWave(tone);
-    osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0, t);
-    gain.gain.linearRampToValueAtTime(level, t + 0.005);
-    gain.gain.setValueAtTime(level, Math.max(t + 0.005, end - 0.03));
-    gain.gain.linearRampToValueAtTime(0, end);
-    osc.connect(gain).connect(audio.destination);
-    osc.start(t);
-    osc.stop(end);
-    return osc;
-  } catch {
-    // No audio available: the on-screen countdown still works.
-  }
-}
+const LEAD_MS = 50;
+/** How far ahead each tick schedules sounds: more than a tick, the lead and the longest pickup note. */
+const LOOKAHEAD_MS = 500;
+
+/** The sound for a phase ending: what comes next decides it. */
+const endSound = (next: Phase | undefined): Sound => (!next ? 'finish' : next.kind === 'rest' ? 'stop' : 'start');
 
 /**
  * Runs a sequence of countdown phases. Everything is derived from wall-clock
  * timestamps, so the display is right again after the page was in the background.
  */
-/**
- * Beeps sound this much before what they mark: speakers (Bluetooth especially) lag, so
- * the sound arrives about when the phase actually ends.
- */
-const LEAD_MS = 100;
-/** How far ahead each tick schedules beeps: more than a tick plus the lead. */
-const LOOKAHEAD_MS = 400;
-
 class Timer {
   phases = $state<Phase[]>([]);
   index = $state(0);
@@ -84,8 +55,8 @@ class Timer {
   #now = $state(Date.now());
   #interval: ReturnType<typeof setInterval> | undefined;
   #run = 0;
-  /** Beeps already scheduled, by what they mark, so each plays once. */
-  #beeps = new Map<string, { at: number; osc?: OscillatorNode }>();
+  /** Sounds already scheduled, by what they mark, so each plays once; `from` is when its first note plays. */
+  #beeps = new Map<string, { from: number; osc: OscillatorNode[] }>();
 
   get current(): Phase | undefined {
     return this.phases[this.index];
@@ -113,7 +84,7 @@ class Timer {
     this.#endsAt += Date.now() - this.#pausedAt;
     this.#pausedAt = 0;
     this.#now = Date.now();
-    void audio?.resume();
+    unlockAudio();
     this.#interval = setInterval(() => this.#tick(), 200);
   }
 
@@ -129,14 +100,9 @@ class Timer {
     this.#now = Date.now();
     this.#endsAt = this.#now + list[0].seconds * 1000;
     // Audio has to be set up during the tap that started the timer, even if nothing plays yet.
-    try {
-      audio ??= new AudioContext();
-      void audio.resume();
-    } catch {
-      // No audio: the countdown still shows.
-    }
-    // A count-in starts quietly: its end is the beep that matters.
-    if (list[0].kind !== 'prepare') beep(660, 120);
+    unlockAudio();
+    // A count-in starts quietly: its end is the sound that matters.
+    if (list[0].kind !== 'prepare') playSound(list[0].kind === 'rest' ? 'stop' : 'start', beepVolume());
     this.#interval = setInterval(() => this.#tick(), 200);
   }
 
@@ -167,21 +133,24 @@ class Timer {
     if (!this.paused) this.#tick();
   }
 
-  /** Plays a beep LEAD_MS before `at` (a wall-clock time), unless one is already set for `key`. */
-  #beepAt(key: string, at: number, freq: number, ms: number): void {
+  /** Plays a sound so it lands LEAD_MS before `at` (a wall-clock time), unless one is already set for `key`. */
+  #soundAt(key: string, at: number, sound: Sound): void {
     if (this.#beeps.has(key)) return;
-    this.#beeps.set(key, { at, osc: beep(freq, ms, beepVolume(), at - LEAD_MS - Date.now()) });
+    const inMs = at - LEAD_MS - Date.now();
+    this.#beeps.set(key, { from: Date.now() + Math.max(0, inMs - soundLead(sound) * 1000), osc: playSound(sound, beepVolume(), inMs) });
   }
 
   /** Silences beeps that haven't played yet, after the timing changed; they're set again on the next tick. */
   #cancelBeeps(): void {
     const now = Date.now();
     for (const [key, b] of this.#beeps) {
-      if (b.at - LEAD_MS <= now) continue;
-      try {
-        b.osc?.stop();
-      } catch {
-        // Already stopped.
+      if (b.from <= now) continue;
+      for (const o of b.osc) {
+        try {
+          o.stop();
+        } catch {
+          // Already stopped.
+        }
       }
       this.#beeps.delete(key);
     }
@@ -194,7 +163,7 @@ class Timer {
       const ended = this.current;
       const last = this.index === this.phases.length - 1;
       // Normally set by an earlier tick; this plays it now if the page was asleep.
-      this.#beepAt(`${run}:${this.index}:end`, this.#endsAt, last || ended.kind === 'rest' ? 880 : 520, 350);
+      this.#soundAt(`${run}:${this.index}:end`, this.#endsAt, endSound(this.phases[this.index + 1]));
       navigator.vibrate?.(last ? [200, 100, 200] : 200);
       ended.onEnd?.();
       if (run !== this.#run) return; // onEnd started a different timer
@@ -204,17 +173,14 @@ class Timer {
     }
     const phase = this.current;
     if (!phase) return;
-    const horizon = this.#now + LOOKAHEAD_MS + LEAD_MS;
+    const horizon = this.#now + LOOKAHEAD_MS;
     const startedAt = this.#endsAt - phase.seconds * 1000;
-    // The 3, 2, 1 count-down ticks (not during a count-in), then the end of the phase.
+    // The 3, 2, 1 count-down ticks (not during a count-in, nor right on the start sound), then the end of the phase.
     for (const n of phase.kind === 'prepare' ? [] : [3, 2, 1]) {
       const at = this.#endsAt - n * 1000;
-      if (at <= horizon && at >= startedAt && at > this.#now - 1000) this.#beepAt(`${this.#run}:${this.index}:${n}`, at, 440, 80);
+      if (at <= horizon && at >= startedAt + 500 && at > this.#now - 1000) this.#soundAt(`${this.#run}:${this.index}:${n}`, at, 'tick');
     }
-    if (this.#endsAt <= horizon) {
-      const last = this.index === this.phases.length - 1;
-      this.#beepAt(`${this.#run}:${this.index}:end`, this.#endsAt, last || phase.kind === 'rest' ? 880 : 520, 350);
-    }
+    if (this.#endsAt <= horizon) this.#soundAt(`${this.#run}:${this.index}:end`, this.#endsAt, endSound(this.phases[this.index + 1]));
   }
 }
 
