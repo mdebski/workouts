@@ -19,9 +19,11 @@
     dumbbells?: boolean;
     /** The − / + step for a kind of value (kg, seconds, km or one). */
     stepOf: (k: RecordKind) => number;
+    /** The bigger set of steps (e.g. 1.25 / 2.5 / 5 kg) shown when the exercise records just one value. */
+    stepsOf: (k: RecordKind) => number[];
     onsave: (r: { values: RecordValue[]; feel?: Feel; dumbbells: boolean }) => void;
   }
-  let { open = $bindable(false), ex, values, last, feel, dumbbells, stepOf, onsave }: Props = $props();
+  let { open = $bindable(false), ex, values, last, feel, dumbbells, stepOf, stepsOf, onsave }: Props = $props();
 
   const FEELS: { id: Feel; label: string }[] = [
     { id: 'easy', label: 'Easy' },
@@ -78,6 +80,9 @@
     e.currentTarget.value = typeof draft[i] === 'string' ? (draft[i] as string) : '';
   }
 
+  /** Just one value to record (not a note): it gets the whole sheet, with bigger controls. */
+  const single = $derived(ex.record.length === 1 && ex.record[0] !== 'note');
+
   function step(i: number, d: 1 | -1) {
     const k = ex.record[i];
     if (isGradeKind(k)) {
@@ -88,9 +93,14 @@
       else draft[i] = grades[Math.min(grades.length - 1, Math.max(0, grades.indexOf(now) + d))];
       return;
     }
+    bumpBy(i, d * stepOf(k));
+  }
+
+  /** Adds an amount (negative to take away) to a number, from last time's if none is set yet. */
+  function bumpBy(i: number, amount: number) {
     const now = draft[i];
     const base = typeof now === 'number' ? now : typeof last[i] === 'number' ? (last[i] as number) : 0;
-    draft[i] = Math.max(0, Math.round((base + d * stepOf(k)) * 100) / 100);
+    draft[i] = Math.max(0, Math.round((base + amount) * 100) / 100);
   }
 
   const hasLast = $derived(last.some((v) => v !== null));
@@ -110,6 +120,36 @@
   {#if open && ready}
     <form onsubmit={(e) => { e.preventDefault(); done(); }}>
       <p class="title">{ex.name}</p>
+      {#if single}
+        {@const k = ex.record[0]}
+        {@const lastText = last[0] === null ? '' : fmtOne(k, last[0])}
+        <p class="muted center">{labelOf(0)}{lastText ? ` · last time ${lastText}` : ''}</p>
+        {#if isGradeKind(k) || k === 'count'}
+          <!-- A grade or a plain count: the value in the middle, one step either side. -->
+          <div class="counter">
+            <button type="button" class="big-step" aria-label="{labelOf(0)}: {isGradeKind(k) ? 'easier' : 'one fewer'}" onclick={() => step(0, -1)}>−</button>
+            {#if isGradeKind(k)}
+              <input class="big" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label={labelOf(0)}
+                placeholder={startGrade(k, 0)} value={typeof draft[0] === 'string' ? draft[0] : ''} onchange={(e) => readGrade(0, e)} />
+            {:else}
+              <input class="big" type="text" inputmode="decimal" autocomplete="off" aria-label="{labelOf(0)}, times"
+                placeholder="–" value={shown(k, draft[0])} onchange={(e) => readInto(0, e)} />
+            {/if}
+            <button type="button" class="big-step" aria-label="{labelOf(0)}: {isGradeKind(k) ? 'harder' : 'one more'}" onclick={() => step(0, 1)}>+</button>
+          </div>
+        {:else}
+          {@const steps = stepsOf(k)}
+          <label class="big-value">
+            <input class="big" type="text" inputmode={k === 'time' ? 'text' : 'decimal'} autocomplete="off" aria-label="{labelOf(0)}{unitWord(k) ? `, ${unitWord(k)}` : ''}"
+              placeholder={k === 'time' ? (ex.type === 'activity' ? '45min' : '45s') : '–'} value={shown(k, draft[0])} onchange={(e) => readInto(0, e)} />
+            {#if unitWord(k)}<span aria-hidden="true">{unitWord(k)}</span>{/if}
+          </label>
+          <div class="grid" style="--n: {steps.length}">
+            {#each steps as s}<button type="button" class="btn" onclick={() => bumpBy(0, -s)}>−{k === 'time' ? formatDuration(s) : fmtNum(s)}</button>{/each}
+            {#each steps as s}<button type="button" class="btn" onclick={() => bumpBy(0, s)}>+{k === 'time' ? formatDuration(s) : fmtNum(s)}</button>{/each}
+          </div>
+        {/if}
+      {:else}
       <div class="entries">
         {#each ex.record as k, i (i)}
           {@const lastText = last[i] === null ? '' : fmtOne(k, last[i])}
@@ -136,6 +176,7 @@
           </div>
         {/each}
       </div>
+      {/if}
       {#if pace}<p class="pace">Pace {pace}</p>{/if}
 
       <div class="feels" role="group" aria-label="How did it feel?">
@@ -155,6 +196,17 @@
 </Sheet>
 
 <style>
+  .center { text-align: center; margin: -0.5rem 0 0.75rem; }
+  input.big { text-align: center; font-size: 2.25rem; font-weight: 650; font-variant-numeric: tabular-nums; border-color: transparent; background: none; padding: 0; min-width: 0; }
+  input.big:focus-visible { border-color: var(--accent); outline: none; }
+  .big-value { display: flex; align-items: baseline; justify-content: center; gap: 0.5rem; margin: 0 0 1rem; color: var(--muted); }
+  .big-value input { width: 10rem; }
+  .grid { display: grid; grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr)); gap: 0.5rem; margin-bottom: 1rem; }
+  .grid .btn { font-size: 1.0625rem; }
+  .counter { display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin: 0.25rem 0 1.25rem; }
+  .counter input { width: 7rem; font-size: 3rem; }
+  .big-step { flex: none; width: 4.5rem; height: 4.5rem; border: none; border-radius: 50%; background: var(--raise); color: var(--text); font: inherit; font-size: 2.25rem; font-weight: 600; line-height: 1; cursor: pointer; touch-action: manipulation; }
+  .big-step:hover { background: var(--line); }
   .title { text-align: center; font-weight: 600; margin: 0 0 0.75rem; }
   /* One value per row, in the order they're listed: what it is on the left, the input on the right. */
   .entries { display: grid; gap: 0.5rem; margin-bottom: 0.75rem; }

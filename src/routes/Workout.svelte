@@ -556,6 +556,7 @@
       feel={w.results[sheetEx.id]?.feel}
       dumbbells={w.results[sheetEx.id]?.dumbbells}
       stepOf={(k) => (k === 'weight' ? minStep : stepsFor(sheetEx, k)[0])}
+      stepsOf={(k) => stepsFor(sheetEx, k)}
       onsave={(r) => saveSheet(w, sheetEx, r)}
     />
   {/if}
