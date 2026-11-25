@@ -1,7 +1,6 @@
 <script lang="ts">
   import Sheet from './Sheet.svelte';
-  import GradeWheel from './GradeWheel.svelte';
-  import { fmtNum, fmtOne, isGradeKind, kindLabel, paceOf } from '../lib/record.ts';
+  import { fmtNum, fmtOne, gradesOf, isGradeKind, kindLabel, paceOf } from '../lib/record.ts';
   import { formatDuration, parseDuration } from '../lib/duration.ts';
   import type { Exercise, Feel, RecordKind, RecordValue } from '../lib/types.ts';
 
@@ -65,8 +64,30 @@
     e.currentTarget.value = shown(k, draft[i]);
   }
 
+  /** Where a grade's − / + start from when none is set: last time's, else a middling grade. */
+  const startGrade = (k: 'route' | 'boulder', i: number) =>
+    typeof last[i] === 'string' && gradesOf(k).includes(last[i] as string) ? (last[i] as string) : k === 'route' ? '6a' : 'V3';
+
+  /** A typed grade, in any case: "7A+" is 7a+, "v5" is V5. Anything not on the scale is ignored. */
+  function readGrade(i: number, e: Event & { currentTarget: HTMLInputElement }) {
+    const k = ex.record[i] as 'route' | 'boulder';
+    const text = e.currentTarget.value.trim();
+    const g = gradesOf(k).find((x) => x.toLowerCase() === text.toLowerCase());
+    if (!text) draft[i] = null;
+    else if (g) draft[i] = g;
+    e.currentTarget.value = typeof draft[i] === 'string' ? (draft[i] as string) : '';
+  }
+
   function step(i: number, d: 1 | -1) {
     const k = ex.record[i];
+    if (isGradeKind(k)) {
+      const grades = gradesOf(k);
+      const now = draft[i];
+      // The first press from nothing picks the starting grade itself; after that, one grade up or down.
+      if (typeof now !== 'string' || !grades.includes(now)) draft[i] = startGrade(k, i);
+      else draft[i] = grades[Math.min(grades.length - 1, Math.max(0, grades.indexOf(now) + d))];
+      return;
+    }
     const now = draft[i];
     const base = typeof now === 'number' ? now : typeof last[i] === 'number' ? (last[i] as number) : 0;
     draft[i] = Math.max(0, Math.round((base + d * stepOf(k)) * 100) / 100);
@@ -93,12 +114,16 @@
         {#each ex.record as k, i (i)}
           {@const lastText = last[i] === null ? '' : fmtOne(k, last[i])}
           <div class="entry" class:wide={k === 'note'}>
-            <span class="label">{labelOf(i)}{#if lastText}<span class="muted"> · last {lastText}</span>{/if}</span>
+            <span class="label">{labelOf(i)}{#if lastText}<span class="muted">last {lastText}</span>{/if}</span>
             {#if k === 'note'}
               <textarea rows="2" aria-label={labelOf(i)} value={typeof draft[i] === 'string' ? draft[i] : ''} oninput={(e) => (draft[i] = e.currentTarget.value || null)}></textarea>
             {:else if isGradeKind(k)}
-              <GradeWheel kind={k} bind:value={() => (typeof draft[i] === 'string' ? (draft[i] as string) : null), (g) => (draft[i] = g)} start={typeof last[i] === 'string' ? (last[i] as string) : null} label={labelOf(i)} />
-              {#if draft[i] !== null}<button type="button" class="clear" onclick={() => (draft[i] = null)}>Clear</button>{/if}
+              <div class="number">
+                <button type="button" class="step" aria-label="{labelOf(i)}: easier" onclick={() => step(i, -1)}>−</button>
+                <input type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label={labelOf(i)}
+                  placeholder={startGrade(k, i)} value={typeof draft[i] === 'string' ? draft[i] : ''} onchange={(e) => readGrade(i, e)} />
+                <button type="button" class="step" aria-label="{labelOf(i)}: harder" onclick={() => step(i, 1)}>+</button>
+              </div>
             {:else}
               <div class="number">
                 <button type="button" class="step" aria-label="{labelOf(i)}: less" onclick={() => step(i, -1)}>−</button>
@@ -131,18 +156,19 @@
 
 <style>
   .title { text-align: center; font-weight: 600; margin: 0 0 0.75rem; }
-  .entries { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: 0.75rem 0.625rem; margin-bottom: 0.75rem; }
-  .entry { display: grid; gap: 0.375rem; align-content: start; min-width: 0; }
-  .entry.wide { grid-column: 1 / -1; }
-  .label { font-size: 0.875rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .label .muted { font-weight: 400; }
+  /* One value per row, in the order they're listed: what it is on the left, the input on the right. */
+  .entries { display: grid; gap: 0.5rem; margin-bottom: 0.75rem; }
+  .entry { display: flex; align-items: center; gap: 0.625rem; min-width: 0; }
+  .entry .number { flex: none; width: 12.5rem; }
+  .entry.wide { display: grid; gap: 0.375rem; }
+  .label { flex: 1; min-width: 0; display: grid; font-size: 0.9375rem; font-weight: 600; }
+  .label .muted { font-size: 0.8125rem; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .number { display: flex; align-items: center; gap: 0.25rem; background: var(--bg); border-radius: 12px; padding: 0.25rem; }
   .number input { flex: 1; min-width: 0; text-align: center; font-size: 1.25rem; font-weight: 650; font-variant-numeric: tabular-nums; border-color: transparent; background: none; padding: 0; min-height: 2.5rem; }
   .number input:focus-visible { border-color: var(--accent); outline: none; }
   .unit { color: var(--muted); font-size: 0.8125rem; }
   .step { flex: none; width: 2.5rem; height: 2.5rem; border: none; border-radius: 50%; background: var(--raise); color: var(--text); font: inherit; font-size: 1.375rem; font-weight: 600; line-height: 1; cursor: pointer; touch-action: manipulation; }
   .step:hover { background: var(--line); }
-  .clear { justify-self: center; min-height: 2rem; padding: 0 0.75rem; border: none; background: none; color: var(--muted); font: inherit; font-size: 0.8125rem; font-weight: 600; cursor: pointer; }
   textarea { field-sizing: content; min-height: 3rem; resize: vertical; }
   .pace { margin: -0.25rem 0 0.75rem; text-align: center; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
   .feels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.375rem; margin-bottom: 0.75rem; }

@@ -184,7 +184,7 @@
 
 <h2>App version</h2>
 <div class="card">
-  <p class="muted">Built {built}.</p>
+  <p class="muted">Version {import.meta.env.VITE_APP_VERSION}, built {built}.</p>
   {#if startup}<p class="muted">This start: page in {startup.html} ms{startup.fromCache ? ' (from the offline copy)' : ''}, app on screen after {startup.ready} ms.</p>{/if}
   <button class="btn wide update" onclick={updateApp} aria-disabled={updating}>{updating ? 'Updating…' : 'Update and reload'}</button>
   {#if updateMessage}<p class="muted" role="status">{updateMessage}</p>{/if}
