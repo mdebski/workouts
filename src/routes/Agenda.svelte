@@ -75,6 +75,32 @@
     return parts.join(' · ');
   }
 
+  // Whether today's row is off screen, and which way: then a button brings it back.
+  let todayAway = $state<'up' | 'down' | undefined>();
+  $effect(() => {
+    void shown; // the row is re-made when the list changes
+    const el = document.getElementById('today');
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    // The sticky header and month label cover the top of the screen: there it doesn't count as seen.
+    const io = new IntersectionObserver(([e]) => {
+      todayAway = e.isIntersecting ? undefined : e.boundingClientRect.top < (e.rootBounds?.top ?? 0) ? 'up' : 'down';
+    }, { rootMargin: `-${6 * (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16)}px 0px 0px 0px` }); // 6rem; rem isn't allowed here
+    io.observe(el);
+    // Scrolling right past today (one fling, or a jump) doesn't change whether it's seen: keep the arrow right.
+    const onScroll = () => {
+      if (todayAway) todayAway = el.getBoundingClientRect().top < 0 ? 'up' : 'down';
+    };
+    addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      io.disconnect();
+      removeEventListener('scroll', onScroll);
+    };
+  });
+  function backToToday() {
+    const smooth = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    document.getElementById('today')?.scrollIntoView({ block: 'start', behavior: smooth ? 'smooth' : 'auto' });
+  }
+
   // Back from a workout (or another screen): the same place as before. First time: today.
   onMount(() => {
     const y = scrollMemory.get('agenda');
@@ -135,9 +161,19 @@
 
 <button class="btn small wide more" onclick={() => (futureDays += 28)}>Show later</button>
 
+{#if todayAway}
+  <button class="btn small to-today" onclick={backToToday}><Icon name={todayAway} size={16} /> Today</button>
+{/if}
+
 
 <style>
   .more { margin: 0.5rem 0; }
+  /* Back to today: floats at the bottom while today's row is scrolled away. */
+  .to-today {
+    position: fixed; z-index: 5; left: 50%; translate: -50% 0; bottom: calc(1rem + env(safe-area-inset-bottom));
+    gap: 0.375rem; padding-inline: 1rem; border-radius: 999px;
+    background: var(--accent); color: var(--accent-ink); box-shadow: 0 4px 16px rgb(0 0 0 / 0.4);
+  }
   /* Show earlier and the empty-days toggle share the row above the list. */
   .top-row { display: flex; gap: 0.5rem; margin: 0.5rem 0; }
   .top-row .grow { flex: 1; }
