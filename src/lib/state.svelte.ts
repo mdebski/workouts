@@ -1,4 +1,4 @@
-import { emptyData, mergeData, migrate, type MergeSummary, syncProgramme, topUp, deleteProgramme, deleteProgrammeAndWorkouts, uid, clone } from './core.ts';
+import { emptyData, mergeData, migrate, type MergeSummary, syncProgramme, topUp, restepProgramme, deleteProgramme, deleteProgrammeAndWorkouts, uid, clone } from './core.ts';
 import { today } from './dates.ts';
 import type { Data, Item, Programme, Workout } from './types.ts';
 
@@ -46,6 +46,12 @@ export function saveProgramme(p: Programme): void {
   if (isNew) db.programmes.push(p);
   else db.programmes[i] = p;
   syncProgramme(db, isNew ? db.programmes.at(-1)! : db.programmes[i], today());
+}
+
+/** After a workout is finished or reopened: a progression by workouts done may move the planned ones on or back. */
+export function restepFor(w: Workout): void {
+  const p = w.programmeId ? getProgramme(w.programmeId) : undefined;
+  if (p?.progression?.unit === 'workouts') restepProgramme(db, p, today());
 }
 
 export function removeProgramme(id: string): void {

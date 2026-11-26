@@ -34,6 +34,9 @@ function exercise(v: unknown): Exercise {
       sets: scheme.length || int(v.sets, 1, 99, 1), reps: scheme[0] ?? int(v.reps, 1, 999, 1),
       repScheme: scheme.length ? scheme : undefined,
       restBetweenSets: rest(v.restBetweenSets),
+      ...(Array.isArray(v.steps) && v.steps.length
+        ? { steps: v.steps.slice(0, 52).map((st) => ({ reps: int(isObj(st) ? st.reps : undefined, 1, 999, 1) })) }
+        : {}),
     };
   }
   if (v.type === 'timed') {
@@ -101,6 +104,9 @@ export function sanitiseProgramme(raw: unknown, today: ISODate): Programme {
     items: raw.items.slice(0, MAX_ITEMS).flatMap(item),
     schedule: { start, repeat: repeat(raw.schedule.repeat), end: ending },
     archived: false,
+    ...(isObj(raw.progression) && (raw.progression.unit === 'weeks' || raw.progression.unit === 'workouts')
+      ? { progression: { unit: raw.progression.unit, every: int(raw.progression.every, 1, 52, 1) } }
+      : {}),
   };
 }
 
@@ -122,7 +128,7 @@ async function pipe(bytes: Uint8Array, stream: CompressionStream | Decompression
 /** `z.` = deflate-compressed JSON, `j.` = plain JSON (browsers without CompressionStream). */
 export async function encodeProgramme(p: Programme): Promise<string> {
   // Ids are local and regenerated on import, so leave them out to keep the link short.
-  const json = JSON.stringify({ name: p.name, emoji: p.emoji, description: p.description, items: p.items, schedule: p.schedule }, (k, v) => (k === 'id' ? undefined : v));
+  const json = JSON.stringify({ name: p.name, emoji: p.emoji, description: p.description, items: p.items, schedule: p.schedule, progression: p.progression }, (k, v) => (k === 'id' ? undefined : v));
   const bytes = new TextEncoder().encode(json);
   if (typeof CompressionStream === 'undefined') return `j.${toBase64Url(bytes)}`;
   return `z.${toBase64Url(await pipe(bytes, new CompressionStream('deflate-raw')))}`;

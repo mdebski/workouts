@@ -82,7 +82,9 @@
           {:else if present.ex.type === 'activity'}
             <span class="muted">–</span>
           {:else if (r?.setsDone ?? 0) >= present.sets}
-            <Icon name="check" size={16} /><span class="sr">Done</span>
+            <!-- Nothing recorded: the sets and reps done (they can change week to week). -->
+            {@const plan = describePlan(present.ex, !!present.supersetId)}
+            {#if plan && plan !== 'Activity'}<span class="text" title={plan}>{plan}</span><span class="sr">, done</span>{:else}<Icon name="check" size={16} /><span class="sr">Done</span>{/if}
           {:else}
             <span class="muted">{r?.setsDone ?? 0}/{present.sets}</span>
           {/if}

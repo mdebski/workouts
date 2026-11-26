@@ -4,7 +4,8 @@
   import { formatDuration } from '../lib/duration.ts';
   import RecordSheet from '../components/RecordSheet.svelte';
   import FeelMark from '../components/FeelMark.svelte';
-  import { db, getProgramme, getWorkout, removeWorkout } from '../lib/state.svelte.ts';
+  import { db, getProgramme, getWorkout, removeWorkout, restepFor } from '../lib/state.svelte.ts';
+  import { itemsAt, stepLabel } from '../lib/progression.ts';
   import { clone, hasRecorded as resultHasRecorded, describePlan, exerciseFinished, recordsKg, copyValues, fmtNum, flatten, fmtSecs, isComplete, matchingValueAt, neighbours, previousDone, resultOf, setValueAt, statusOf, valueAt } from '../lib/core.ts';
   import { fmtOne, gradeRank, isGradeKind, isNumberKind, kindLabel, paceOf } from '../lib/record.ts';
   import { fmtDay, fmtLong, isISODate, today as todayISO } from '../lib/dates.ts';
@@ -37,6 +38,7 @@
 
   let notesOpen = $state(false);
   let moreOpen = $state(false);
+  let aboutOpen = $state(false);
   /** The sheet for everything recorded for one exercise, and which exercise it's open for. */
   let sheetOpen = $state(false);
   let sheetFor = $state('');
@@ -315,6 +317,7 @@
     untrack(() => {
       if (complete) finish(w);
       else reopen(w);
+      restepFor(w);
     });
   });
 
@@ -331,7 +334,7 @@
     if (!p) return;
     if (!confirm(`Reset this workout to "${p.name}" as it is now? Exercises you added or changed here go back to the programme's; anything recorded for exercises that are no longer there is removed.`)) return;
     timer.stop();
-    w.items = clone($state.snapshot(p.items) as Item[]);
+    w.items = itemsAt($state.snapshot(p.items) as Item[], p.progression ? w.step : undefined);
     w.name = p.name;
     w.emoji = p.emoji;
     const ids = new Set(flatten(w.items).map((f) => f.ex.id));
@@ -362,6 +365,7 @@
 
   <p class="when">
     {fmtLong(w.date)}
+    {#if w.step !== undefined && w.programmeId && getProgramme(w.programmeId)?.progression}<span class="tag">{stepLabel(getProgramme(w.programmeId)?.progression, w.step)}</span>{/if}
     {#if status === 'missed'}<span class="tag bad">Missed</span>{/if}
   </p>
 
@@ -377,8 +381,8 @@
 
   {#if w.programmeId && getProgramme(w.programmeId)?.description}
     <!-- The programme's description, folded away until you want it. -->
-    <details class="about">
-      <summary>About {getProgramme(w.programmeId)?.name}</summary>
+    <details class="about" bind:open={aboutOpen}>
+      <summary><Icon name={aboutOpen ? 'down' : 'right'} size={16} /> About {getProgramme(w.programmeId)?.name}</summary>
       <p>{getProgramme(w.programmeId)?.description}</p>
     </details>
   {/if}
@@ -567,6 +571,7 @@
   h3 { font-size: 1rem; font-weight: 600; }
   .when { color: var(--muted); font-size: 0.875rem; margin: 0 0.25rem 0.75rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
   .tag { padding: 0.125rem 0.625rem; border-radius: 99px; font-weight: 600; font-size: 0.8125rem; }
+  .tag { background: var(--raise); }
   .tag.bad { background: var(--bad); color: var(--bad-ink); }
   /* Previous, the whole-workout done control in the middle, next. */
   .around { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; margin-bottom: 0.75rem; }
@@ -647,10 +652,10 @@
   textarea { field-sizing: content; min-height: 4rem; resize: vertical; }
   .more { margin-top: 1.5rem; color: var(--muted); }
   .about { margin: 0.25rem 0 0.75rem; color: var(--muted); }
-  .about summary { min-height: 2.75rem; display: flex; align-items: center; padding: 0 0.25rem; cursor: pointer; font-size: 0.875rem; font-weight: 600; }
+  .about summary { min-height: 2.75rem; display: flex; align-items: center; gap: 0.375rem; list-style: none; padding: 0 0.25rem; cursor: pointer; font-size: 0.875rem; font-weight: 600; }
   .about p { margin: 0 0.25rem 0.5rem; white-space: pre-line; overflow-wrap: anywhere; }
   .more summary { min-height: 2.75rem; display: flex; align-items: center; gap: 0.375rem; cursor: pointer; padding: 0 0.25rem; font-weight: 600; list-style: none; }
-  .more summary::-webkit-details-marker { display: none; }
+  .more summary::-webkit-details-marker, .about summary::-webkit-details-marker { display: none; }
   .more > :not(summary) { margin-top: 0.5rem; }
 
   .spacer { height: 10rem; }

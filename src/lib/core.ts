@@ -2,6 +2,7 @@ import { addDays, isISODate, maxISO } from './dates.ts';
 import { lastDay, occurrences } from './schedule.ts';
 import { formatDuration } from './duration.ts';
 import { cleanValues, describeRecord, fmtNum, gradeRank, hasRecorded, isGradeKind, isNumberKind, legacyRecord, legacyValues, valuesFor } from './record.ts';
+import { itemsAt, repSteps, weekStep } from './progression.ts';
 import type { Data, Exercise, ISODate, Item, Programme, RecordKind, RecordValue, Result, Step, Workout } from './types.ts';
 
 export { fmtNum, hasRecorded } from './record.ts';
@@ -202,8 +203,12 @@ export function describe(ex: Exercise, inSuperset = false, withRecord = true): s
   const what = withRecord && ex.record.length ? ` · ${describeRecord(ex.record)}` : '';
   if (ex.type === 'reps') {
     const holds = ex.record.includes('time') && ex.reps === 1;
-    const one = holds ? 'hold' : `${ex.reps} reps`;
-    const sets = ex.repScheme?.length ? `${ex.repScheme.join(' / ')} reps` : inSuperset ? one : `${ex.sets} × ${holds ? 'hold' : ex.reps}`;
+    // In a programme that progresses: the first and last step's reps, e.g. "3 × 6→12".
+    const steps = repSteps(ex);
+    const reps = steps.length > 1 ? `${steps[0]}→${steps.at(-1)}` : String(ex.reps);
+    const one = holds ? 'hold' : `${reps} reps`;
+    const scheme = ex.repScheme?.length ? `${ex.repScheme.join(' / ')} reps${steps.length > 1 ? ` (${reps} by step)` : ''}` : '';
+    const sets = scheme || (inSuperset ? one : `${ex.sets} × ${holds ? 'hold' : reps}`);
     return sets + what + (inSuperset ? '' : rest(ex.restBetweenSets));
   }
   if (ex.type === 'timed') return `${ex.reps} × ${formatDuration(ex.workSec)} / ${formatDuration(ex.restSec)}${what}`;
@@ -484,7 +489,37 @@ export function exerciseNames(data: Data): string[] {
 // ---- Programmes ------------------------------------------------------------
 
 function fromProgramme(p: Programme, date: ISODate): Workout {
-  return { id: uid(), programmeId: p.id, name: p.name, emoji: p.emoji, scheduledDate: date, date, items: clone(p.items), results: {} };
+  return { id: uid(), programmeId: p.id, name: p.name, emoji: p.emoji, scheduledDate: date, date, items: itemsAt(p.items, undefined), results: {} };
+}
+
+/**
+ * Gives each of a programme's planned workouts the exercises of its progression step.
+ * By weeks, the step comes from the date. By workouts done, it counts the done ones before
+ * it and assumes every upcoming one gets done; missed ones don't count. Workouts with
+ * anything entered keep what they have. Run after planning and whenever a workout is
+ * finished or reopened.
+ */
+export function restepProgramme(data: Data, p: Programme, today: ISODate): void {
+  const pr = p.progression;
+  if (!pr || p.archived) return;
+  const ws = data.workouts.filter((w) => w.programmeId === p.id).sort(order);
+  let done = 0;
+  for (const w of ws) {
+    if (hasEntries(w)) {
+      if (isComplete(w)) done++;
+      continue;
+    }
+    const step = pr.unit === 'weeks' ? weekStep(p, w.scheduledDate ?? w.date) : Math.floor(done / pr.every);
+    if (pr.unit === 'workouts' && w.date >= today) done++;
+    if (w.step !== step) {
+      w.step = step;
+      w.items = itemsAt(p.items, step);
+    }
+  }
+}
+
+export function restepAll(data: Data, today: ISODate): void {
+  for (const p of data.programmes) restepProgramme(data, p, today);
 }
 
 /**
@@ -511,6 +546,7 @@ export function syncProgramme(data: Data, p: Programme, today: ISODate): void {
     data.workouts.push(fromProgramme(p, date));
     remaining--;
   }
+  restepProgramme(data, p, today);
 }
 
 /** Extends open-ended programmes up to the horizon. Safe to call on every launch. */
@@ -526,6 +562,8 @@ export function topUp(data: Data, today: ISODate): void {
       data.workouts.push(fromProgramme(p, date));
     }
   }
+  // Also catches up workouts-done progressions after workouts were missed.
+  restepAll(data, today);
 }
 
 export function deleteProgramme(data: Data, id: string, today: ISODate): void {

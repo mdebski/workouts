@@ -13,6 +13,7 @@
   import { db } from '../lib/state.svelte.ts';
   import { flatten, hasProgress, slotInfo, statusOf } from '../lib/core.ts';
   import { fmtRecorded } from '../lib/record.ts';
+  import { stepLabel } from '../lib/progression.ts';
   import { addDays, diffDays, fmtMonth, fmtWeekday, isoWeek, today as todayISO } from '../lib/dates.ts';
   import type { Feel, Workout } from '../lib/types.ts';
   import FeelMark from '../components/FeelMark.svelte';
@@ -56,6 +57,9 @@
     const status = statusOf(w, today);
     const slot = slotInfo(db, w);
     const parts: string[] = [];
+    // A programme that progresses: which week (or step) this one is.
+    const pr = w.programmeId && w.step !== undefined ? db.programmes.find((p) => p.id === w.programmeId)?.progression : undefined;
+    if (pr) parts.push(stepLabel(pr, w.step!));
     // A single exercise: show what was recorded, e.g. "42.5 kg", "5.4 km" or "1h 15min".
     const flat = flatten(w.items);
     if (flat.length === 1) {

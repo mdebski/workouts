@@ -9,13 +9,16 @@
   import { findKinds, fmtRecorded, gradesOf, isGradeKind, kindLabel, valuesFor } from '../lib/record.ts';
   import { formatDuration, parseDuration } from '../lib/duration.ts';
   import { parseQuick, type QuickDefaults } from '../lib/quick.ts';
+  import { parseSteps, progressesByReps, repSteps, setRepSteps } from '../lib/progression.ts';
+  import type { Progression } from '../lib/types.ts';
   import type { Exercise, Item, RecordKind, RecordValue, Rest, Result, Step, Superset } from '../lib/types.ts';
 
   /**
    * With `results` (when editing a workout rather than a programme), each exercise's
    * sheet also takes what was recorded for it: weights, times, grades, notes…
    */
-  let { items = $bindable(), results = $bindable() }: { items: Item[]; results?: Record<string, Result> } = $props();
+  /** `progression`: the programme's, when it has one; exercises then get a reps list, one per step. */
+  let { items = $bindable(), results = $bindable(), progression }: { items: Item[]; results?: Record<string, Result>; progression?: Progression } = $props();
   const recording = $derived(results !== undefined);
 
   type Kind = Exercise['type'];
@@ -100,6 +103,9 @@
       draft.repScheme = scheme.length ? scheme : undefined;
       draft.sets = inSuperset ? 1 : scheme.length || int(draft.sets, 1, 3);
       draft.reps = scheme[0] ?? int(draft.reps, 1, 1);
+      // A reps list (one per step) sets the reps itself: the first step's.
+      if (progression && draft.steps?.length && progressesByReps(draft)) setRepSteps(draft, repSteps(draft));
+      else delete draft.steps;
       draft.restBetweenSets = inSuperset ? undefined : optional(draft.restBetweenSets);
     } else if (draft.type === 'timed') {
       draft.reps = int(draft.reps, 1, 1);
@@ -346,8 +352,15 @@
       {:else}
         <div class="cols">
           {#if !inSuperset}<label class="field"><span>Sets</span><input type="number" inputmode="numeric" min="1" bind:value={draft.sets} /></label>{/if}
-          <label class="field"><span>Reps per set</span><input type="number" inputmode="numeric" min="1" bind:value={draft.reps} /></label>
+          {#if !(progression && draft.steps?.length)}<label class="field"><span>Reps per set</span><input type="number" inputmode="numeric" min="1" bind:value={draft.reps} /></label>{/if}
         </div>
+      {/if}
+      {#if progression && progressesByReps(draft)}
+        <label class="field">
+          <span>Reps at each {progression.unit === 'weeks' && progression.every === 1 ? 'week' : 'step'}{draft.repScheme ? ' (first set; the others move with it)' : ''}</span>
+          <input type="text" inputmode="numeric" autocomplete="off" placeholder="Same every {progression.unit === 'weeks' && progression.every === 1 ? 'week' : 'step'}, or e.g. 6, 8, 10" value={repSteps(draft).join(', ')}
+            onchange={(e) => { setRepSteps(draft, parseSteps(e.currentTarget.value)); e.currentTarget.value = repSteps(draft).join(', '); }} />
+        </label>
       {/if}
     {:else if draft.type === 'timed'}
       <div class="cols">
@@ -410,7 +423,7 @@
 
     {#if !inSuperset && draft.type === 'reps'}
       <details class="rest" bind:open={restOpen}>
-        <summary><Icon name="clock" size={18} /> Rest <span class="muted">{restSummary}</span></summary>
+        <summary><Icon name={restOpen ? 'down' : 'right'} size={16} /><Icon name="clock" size={18} /> Rest <span class="muted">{restSummary}</span></summary>
         <label class="field"><span>Between sets</span><DurationInput bind:value={draft.restBetweenSets} placeholder="90s, 2min" /></label>
       </details>
     {/if}
@@ -486,7 +499,8 @@
   .rest-time { flex: 1; min-width: 0; }
   .rest-time :global(input) { min-height: 2.5rem; }
   .rest { background: var(--bg); border-radius: var(--radius); padding: 0 0.75rem; margin-bottom: 0.75rem; }
-  .rest summary { display: flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; font-weight: 600; cursor: pointer; }
+  .rest summary { display: flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; font-weight: 600; cursor: pointer; list-style: none; }
+  .rest summary::-webkit-details-marker { display: none; }
   .rest[open] { padding-bottom: 0.125rem; }
   .rest .muted { font-weight: 400; }
 

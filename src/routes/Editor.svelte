@@ -11,7 +11,8 @@
   import { MAX_DESCRIPTION } from '../lib/share.ts';
   import { go } from '../lib/router.svelte.ts';
   import { isISODate, today } from '../lib/dates.ts';
-  import type { Item, Programme, Result, Schedule, Workout } from '../lib/types.ts';
+  import type { Exercise, Item, Programme, Progression, Result, Schedule, Workout } from '../lib/types.ts';
+  import { describeProgression, evenSteps, OPEN_ENDED_STEPS, programmeSteps, progressesByReps, repSteps, setRepSteps, stepCount, stepLabel, weekStep } from '../lib/progression.ts';
 
   let props: { kind: 'programme' | 'workout'; id: string; date?: string; from?: string } = $props();
   // The parent re-creates this screen whenever the route changes, so the props are read once.
@@ -37,6 +38,42 @@
   let archived = $state('archived' in source ? source.archived : false);
   let description = $state(('description' in source ? source.description : undefined) ?? '');
   let descriptionOpen = $state(false);
+  let progression = $state<Progression | undefined>('progression' in source ? source.progression : undefined);
+  let progressionOpen = $state(false);
+  let addEach = $state<number | undefined>(2);
+  let progressionMessage = $state('');
+
+  /** Every exercise in the list, supersets included. */
+  const allExercises = () => items.flatMap((it) => (it.type === 'superset' ? it.items : [it])).filter((s): s is Exercise => s.type !== 'rest');
+
+  function setProgression(unit: Progression['unit'] | '') {
+    progression = unit ? { every: progression?.every ?? 1, unit } : undefined;
+    progressionMessage = '';
+  }
+
+  /**
+   * Every exercise that goes by reps (holds are left alone) adds the same reps each step,
+   * starting from its own count, through to the programme's end.
+   */
+  function applyAddEach() {
+    const add = Math.round(Number(addEach));
+    if (!progression || !Number.isFinite(add) || addEach === undefined || addEach === null) return;
+    const total = programmeSteps(schedule, progression) ?? OPEN_ENDED_STEPS;
+    const targets = allExercises().filter(progressesByReps);
+    for (const ex of targets) {
+      const start = repSteps(ex)[0] ?? (ex as { reps: number }).reps;
+      setRepSteps(ex, add === 0 ? [] : evenSteps(start, add, total));
+    }
+    const sample = targets.map(repSteps).find((l) => l.length);
+    progressionMessage = !targets.length ? 'No exercises go by reps yet.'
+      : add === 0 ? `Cleared on ${targets.length === 1 ? '1 exercise' : `${targets.length} exercises`}.`
+      : `Set on ${targets.length === 1 ? '1 exercise' : `${targets.length} exercises`} over ${total} steps${sample ? `, e.g. ${sample[0]}→${sample[sample.length - 1]}` : ''}.`;
+  }
+
+  const steps = $derived(stepCount(items));
+  /** Where the programme is today, for weekly steps that have started. */
+  const nowStep = $derived(progression?.unit === 'weeks' && isISODate(schedule.start) && schedule.start <= today()
+    ? stepLabel(progression, weekStep({ schedule, progression } as Programme, today())) : '');
   let error = $state('');
   let scheduleOpen = $state(true);
   let exercisesOpen = $state(true);
@@ -103,7 +140,10 @@
       const s = clone($state.snapshot(schedule)) as Schedule;
       if (s.repeat.kind === 'interval') s.repeat.days = Math.round(s.repeat.days);
       if (s.end.kind === 'count' || s.end.kind === 'weeks') s.end.n = Math.round(s.end.n);
-      saveProgramme({ ...(source as Programme), ...common, description: description.trim() || undefined, schedule: s, archived });
+      const pr = progression ? { unit: progression.unit, every: Math.max(1, Math.round(progression.every) || 1) } : undefined;
+      // Without a progression, the per-step lists have no use: drop them.
+      if (!pr) for (const it of common.items) for (const st of it.type === 'superset' ? it.items : [it]) if (st.type !== 'rest') delete st.steps;
+      saveProgramme({ ...(source as Programme), ...common, description: description.trim() || undefined, schedule: s, archived, progression: pr });
       go('/programmes');
     } else {
       const ids = new Set(flatten(common.items).map((f) => f.ex.id));
@@ -233,6 +273,35 @@
         {/if}
       </div>
       </Fold>
+
+      <Fold title="Progression" bind:open={progressionOpen} summary={progression ? `Changes ${describeProgression(progression)}` : 'Off'}>
+      <div class="card">
+        <fieldset>
+          <legend>Exercises change step by step</legend>
+          <div class="chips">
+            <label><input type="radio" name="progression" checked={!progression} onchange={() => setProgression('')} />No</label>
+            <label><input type="radio" name="progression" checked={progression?.unit === 'weeks'} onchange={() => setProgression('weeks')} />By weeks</label>
+            <label><input type="radio" name="progression" checked={progression?.unit === 'workouts'} onchange={() => setProgression('workouts')} />By workouts done</label>
+          </div>
+          <p class="muted hint">{progression?.unit === 'weeks' ? 'Weeks count from the start date, whether or not you trained.'
+            : progression?.unit === 'workouts' ? "Only finished workouts move it on: after a missed one you stay on the same step."
+            : 'For example 3 × 6 in the first week, 3 × 8 in the next, and so on.'}</p>
+        </fieldset>
+        {#if progression}
+          <label class="field"><span>{progression.unit === 'weeks' ? 'Next step every how many weeks' : 'Next step every how many workouts'}</span>
+            <input type="number" inputmode="numeric" min="1" bind:value={progression.every} /></label>
+          <!-- Inside the main form, so Enter here sets the reps rather than saving. -->
+          <div class="row all-reps">
+            <label class="field grow"><span>Reps added each step, to every exercise</span><input type="number" inputmode="numeric" step="1" min="-50" max="50" placeholder="2" bind:value={addEach}
+              onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyAddEach(); } }} /></label>
+            <button type="button" class="btn" onclick={applyAddEach}>Set</button>
+          </div>
+          <p class="muted hint">Starts from each exercise's own reps{programmeSteps(schedule, progression) === undefined ? `; the programme has no end, so ${OPEN_ENDED_STEPS} steps` : ''}. 0 clears it.</p>
+          {#if progressionMessage}<p class="muted" role="status">{progressionMessage}</p>{/if}
+          <p class="muted">{steps ? `${steps} steps${nowStep ? ` · now ${nowStep.toLowerCase()}` : ''}. ` : ''}Each exercise can have its own list: edit it under Exercises. After the last step, it stays at the last.</p>
+        {/if}
+      </div>
+      </Fold>
     {:else}
       <label class="field"><span>Date</span><input type="date" bind:value={workoutDate} required /></label>
     {/if}
@@ -244,7 +313,7 @@
           <button type="button" class="icon-btn" aria-label="Move the last exercise to the start" onclick={() => items.unshift(items.pop()!)}><Icon name="last-to-start" /></button>
         {/if}
       {/snippet}
-      {#if isProgramme}<ItemsEditor bind:items />{:else}<ItemsEditor bind:items bind:results />{/if}
+      {#if isProgramme}<ItemsEditor bind:items {progression} />{:else}<ItemsEditor bind:items bind:results />{/if}
     </Fold>
 
 
@@ -280,6 +349,10 @@
   .add-desc { display: block; margin: 0 0 0.5rem; padding: 0.5rem 0.25rem; min-height: 2.75rem; border: none; background: none; color: var(--muted); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer; }
   .add-desc:hover { color: var(--text); }
   textarea { field-sizing: content; min-height: 3.5rem; resize: vertical; }
+  .all-reps { align-items: flex-end; gap: 0.5rem; }
+  .all-reps .field { margin-bottom: 0; }
+  .all-reps .btn { margin-bottom: 0; }
+  .hint { margin: 0.375rem 0 0; }
   .check { display: flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; margin-bottom: 0.75rem; }
   .check input { width: 1.25rem; height: 1.25rem; }
 </style>

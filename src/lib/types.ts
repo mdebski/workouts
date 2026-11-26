@@ -14,6 +14,23 @@ interface ExerciseBase {
   description?: string;
   /** What gets recorded, in order. A kind can repeat, e.g. two weights for two movements. */
   record: RecordKind[];
+  /**
+   * In a programme with a progression: what changes at each step, in order (e.g. reps
+   * 6, 8, 10). Past the last step, the last one holds. Workouts get the step applied and
+   * don't keep this list.
+   */
+  steps?: ExerciseStep[];
+}
+
+/** One step of an exercise's progression: the fields that differ from the exercise. Only reps for now. */
+export interface ExerciseStep {
+  reps?: number;
+}
+
+/** When a programme moves on to its next step: every N calendar weeks from the start, or every N workouts done. */
+export interface Progression {
+  every: number;
+  unit: 'weeks' | 'workouts';
 }
 
 export interface RepsExercise extends ExerciseBase {
@@ -80,6 +97,8 @@ export interface Programme {
   items: Item[];
   schedule: Schedule;
   archived: boolean;
+  /** Set when the exercises change step by step (see `steps` on exercises). */
+  progression?: Progression;
 }
 
 /** One recorded value: a number (kg, seconds, a count or km), a grade or a note; null when not set. */
@@ -106,6 +125,8 @@ export interface Workout {
   startedAt?: string;
   completedAt?: string;
   notes?: string;
+  /** The programme's progression step this workout was planned at (0 = the first). */
+  step?: number;
   /** Snapshot of the programme's items, so later edits never change history. */
   items: Item[];
   results: Record<string, Result>;
