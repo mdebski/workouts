@@ -37,7 +37,7 @@
   {:else if route.name === 'edit-workout'}
     {#key route.id}<Editor kind="workout" id={route.id!} date={route.query.get('date') ?? undefined} from={route.query.get('from') ?? undefined} />{/key}
   {:else if route.name === 'edit-programme'}
-    {#key route.id}<Editor kind="programme" id={route.id!} />{/key}
+    {#key route.id}<Editor kind="programme" id={route.id!} from={route.query.get('from') ?? undefined} />{/key}
   {:else if route.name === 'history'}
     {#key route.id}<History id={route.id!} />{/key}
   {:else if route.name === 'programmes'}

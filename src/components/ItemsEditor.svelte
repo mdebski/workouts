@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import { flip } from 'svelte/animate';
-  import { dragHandle, dragHandleZone } from 'svelte-dnd-action';
+  import { dragHandle, dragHandleZone, TRIGGERS } from 'svelte-dnd-action';
   import Icon from './Icon.svelte';
   import Sheet from './Sheet.svelte';
   import DurationInput from './DurationInput.svelte';
@@ -193,13 +193,25 @@
   }
 
 
-  // ---- Reordering: svelte-dnd-action, by the handle, within each list ----
-  // It animates rows into place and scrolls the page when you drag near an edge.
-  // Each superset is its own zone type, so steps stay inside their superset.
+  // ---- Reordering: svelte-dnd-action, by the handle ----
+  // It animates rows into place and scrolls the page when you drag near an edge. The main
+  // list and every superset share one zone type, so exercises and rests can be dragged into
+  // and out of supersets. A superset itself can't go inside another one.
   const flipDurationMs = 150;
-  type DndItems<T> = CustomEvent<{ items: T[] }>;
-  const reorderTop = (e: DndItems<Item>) => (items = e.detail.items);
-  const reorderSteps = (ss: Superset) => (e: DndItems<Step>) => (ss.items = e.detail.items);
+  type DndItems<T> = CustomEvent<{ items: T[]; info: { trigger: string; id: string } }>;
+  let draggingSuperset = $state(false);
+  function track(e: DndItems<Item | Step>) {
+    if (e.detail.info.trigger === TRIGGERS.DRAG_STARTED) draggingSuperset = items.some((it) => it.id === e.detail.info.id && it.type === 'superset');
+    if (e.type === 'finalize') draggingSuperset = false;
+  }
+  const reorderTop = (e: DndItems<Item>) => {
+    track(e);
+    items = e.detail.items;
+  };
+  const reorderSteps = (ss: Superset) => (e: DndItems<Step>) => {
+    track(e);
+    ss.items = e.detail.items;
+  };
 
   function addSuperset() {
     items.push({ id: uid(), type: 'superset', rounds: 3, items: [] });
@@ -266,7 +278,7 @@
       <div class="cols">
         <label class="field"><span>Rounds</span><input type="number" inputmode="numeric" min="1" bind:value={item.rounds} onchange={() => cleanSuperset(item)} /></label>
       </div>
-      <div class="sortable" use:dragHandleZone={{ items: item.items, flipDurationMs, type: `steps-${item.id}`, dropTargetStyle: {} }} onconsider={reorderSteps(item)} onfinalize={reorderSteps(item)}>
+      <div class="sortable steps" data-empty="Drag exercises here, or add one" use:dragHandleZone={{ items: item.items, flipDurationMs, type: 'items', dropFromOthersDisabled: draggingSuperset, dropTargetStyle: {} }} onconsider={reorderSteps(item)} onfinalize={reorderSteps(item)}>
         {#each item.items as step, j (step.id)}
           <div class="slot" animate:flip={{ duration: flipDurationMs }}>
             {#if step.type === 'rest'}{@render restRow(item.items, j, step)}{:else}{@render row(item.items, j, step, true)}{/if}
@@ -442,6 +454,9 @@
   .main { flex: 1; min-width: 0; display: grid; gap: 0.125rem; text-align: left; padding: 0.75rem 0.75rem 0.75rem 0.25rem; background: none; border: none; color: inherit; font: inherit; cursor: pointer; border-radius: var(--radius); }
   .superset { border: 2px dashed #7f77dd; border-radius: 20px; padding: 0.25rem 0.625rem 0.625rem; margin-bottom: 0.5rem; }
   .superset legend { display: inline-flex; align-items: center; gap: 0.375rem; color: var(--accent); padding: 0 0.375rem; margin: 0; }
+  /* A superset's list stays a drop target when it's empty, with a word on how to fill it. */
+  .steps { min-height: 2.75rem; }
+  .steps:empty::before { content: attr(data-empty); display: grid; place-items: center; min-height: 2.75rem; margin-bottom: 0.5rem; border-radius: var(--radius); background: var(--bg); color: var(--muted); font-size: 0.875rem; }
   .none { padding: 0.5rem 0.25rem 0.75rem; }
   .hint { margin-top: 0.375rem; }
   /* Exercise, Superset and Rest share one row; "Add several" gets the next. */
@@ -464,7 +479,6 @@
   .entries { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0 0.5rem; }
   /* A rest: a red bar down the left edge rather than a full outline. */
   .rest-item { gap: 0.5rem; box-shadow: inset 4px 0 0 var(--bad-line); }
-  /* Drag handle: the whole height of the row, with a cursor that says it moves. */
   /* Drag handle: the full height of the row, with a cursor that says it moves. */
   .handle { flex: none; display: grid; place-items: center; width: 2.25rem; align-self: stretch; color: var(--muted); cursor: grab; touch-action: none; border-radius: var(--radius); }
   .handle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

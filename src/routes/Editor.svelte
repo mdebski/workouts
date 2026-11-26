@@ -5,7 +5,7 @@
   import Fold from '../components/Fold.svelte';
   import EmojiPicks from '../components/EmojiPicks.svelte';
   import { describeEnd, describeRepeat } from '../lib/schedule.ts';
-  import { db, rememberEmoji, blankProgramme, blankWorkout, copyOfWorkout, getProgramme, getWorkout, removeProgramme, removeProgrammeAndWorkouts, removeWorkout, saveProgramme, saveWorkout, snapshot } from '../lib/state.svelte.ts';
+  import { db, rememberEmoji, blankProgramme, blankWorkout, copyOfProgramme, copyOfWorkout, getProgramme, getWorkout, removeProgramme, removeProgrammeAndWorkouts, removeWorkout, saveProgramme, saveWorkout, snapshot } from '../lib/state.svelte.ts';
   import { clone, flatten, isLogged, programmeBackup } from '../lib/core.ts';
   import { downloadJSON, slug } from '../lib/download.ts';
   import { MAX_DESCRIPTION } from '../lib/share.ts';
@@ -22,8 +22,11 @@
   const existing: Programme | Workout | undefined = isNew ? undefined : isProgramme ? getProgramme(id) : getWorkout(id);
   // "Create a copy" of a one-off workout: the same workout, with the date left for you to pick.
   const copied = isNew && !isProgramme && from ? getWorkout(from) : undefined;
+  // "Clone programme": the same programme as a new one, starting today.
+  const cloned = isNew && isProgramme && from ? getProgramme(from) : undefined;
   const source = existing ? clone($state.snapshot(existing) as Programme | Workout)
     : copied ? copyOfWorkout($state.snapshot(copied) as Workout)
+    : cloned ? copyOfProgramme($state.snapshot(cloned) as Programme)
     : isProgramme ? blankProgramme() : blankWorkout(date && isISODate(date) ? date : today());
 
   let name = $state(source.name);
@@ -60,8 +63,8 @@
   }
 
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const backHref = isProgramme ? '#/programmes' : copied ? `#/w/${copied.id}` : isNew ? '#/' : `#/w/${id}`;
-  const title = isProgramme ? (isNew ? 'New programme' : 'Edit programme') : copied ? 'Copy of workout' : isNew ? 'New workout' : 'Edit workout';
+  const backHref = cloned ? `#/p/${cloned.id}` : isProgramme ? '#/programmes' : copied ? `#/w/${copied.id}` : isNew ? '#/' : `#/w/${id}`;
+  const title = isProgramme ? (cloned ? 'Clone of programme' : isNew ? 'New programme' : 'Edit programme') : copied ? 'Copy of workout' : isNew ? 'New workout' : 'Edit workout';
 
   function setRepeat(k: 'weekdays' | 'interval') {
     if (schedule.repeat.kind !== k) schedule.repeat = k === 'weekdays' ? { kind: k, days: [1, 3, 5] } : { kind: k, days: 2 };
@@ -255,6 +258,8 @@
     {#if isProgramme && !isNew}
       <button type="button" class="btn wide export" onclick={exportProgramme}>Export programme and its workouts</button>
       <p class="muted note">Saves the programme as last saved, with every workout up to today, as a file you can bring back with Import in Settings.</p>
+      <a class="btn wide export" href="#/p/new?from={id}">Clone programme</a>
+      <p class="muted note">A new programme with the same exercises and schedule, as last saved, starting today. Nothing done carries over.</p>
     {/if}
     {#if !isProgramme && !isNew}<a class="btn wide export" href="#/w/new/edit?from={id}">{(source as Workout).programmeId ? 'Copy as a one-off workout' : 'Create a copy'}</a>{/if}
     {#if !isNew}<button type="button" class="btn danger wide" onclick={remove}>Delete {isProgramme ? 'programme' : 'workout'}</button>{/if}

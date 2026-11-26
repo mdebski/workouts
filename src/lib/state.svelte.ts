@@ -110,6 +110,23 @@ export function blankWorkout(date: string): Workout {
 
 /** A new one-off workout like `w`: same name, icon and exercises, and the weights, times or notes
  *  it recorded; no date, nothing ticked off. */
+/**
+ * A new programme just like this one: the same exercises and schedule, starting today,
+ * with nothing done yet. Every id is new, so the two never get mixed up.
+ */
+export function copyOfProgramme(p: Programme): Programme {
+  const items = clone(p.items).map((it) => (it.type === 'superset' ? { ...it, id: uid(), items: it.items.map((s) => ({ ...s, id: uid() })) } : { ...it, id: uid() }));
+  return {
+    id: uid(),
+    name: `${p.name} (copy)`.slice(0, 80),
+    emoji: p.emoji,
+    description: p.description,
+    items,
+    schedule: { ...clone(p.schedule), start: today() },
+    archived: false,
+  };
+}
+
 export function copyOfWorkout(w: Workout): Workout {
   const results: Workout['results'] = {};
   for (const [id, r] of Object.entries(clone(w.results))) {
